@@ -1,0 +1,26 @@
+2026-10-28 19:29:06.234 (   0.021s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{F23E1A3A-786F-4149-A93F-FFBEA4EC7DC0}' (status: 2, multicast: 1
+2026-10-28 19:29:06.236 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{5C771E35-E6A2-46EC-81BB-D29078F72517}' (status: 2, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{9C6B39B4-5A1C-4DE4-9F08-B26F24A849C0}' (status: 2, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{E2C36B37-1476-48B8-82A5-D611400CFC99}' (status: 2, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{FB7D1F83-611A-410B-B73D-2C1775E3593E}' (status: 2, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{19D5CC95-4CDA-4F97-9F62-5A294891315F}' (status: 1, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:58    INFO| 	IPv6 ifindex 8
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{7CBFAC32-B098-4571-8207-0032CB7CBB87}' (status: 2, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:36    INFO| netif '{0B3A21E4-D299-11F1-BAB0-806E6F6E6963}' (status: 1, multicast: 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]      netinterfaces.cpp:58    INFO| 	IPv6 ifindex 1
+2026-10-28 19:29:06.237 (   0.022s) [        546DEAB7]         api_config.cpp:126   INFO| Loaded default config
+Found PLUX@DESKTOP-FKO5BV3 matching 'name='PLUX''
+Found SessionMarkers@DESKTOP-FKO5BV3 matching 'name='SessionMarkers''
+Starting the recording, press Enter to quit
+2026-10-28 19:29:07.242 (   1.027s) [        12006568]             common.cpp:78    INFO| git:v1.18.0.b3/branch:HEAD/build:Release/compiler:MSVC-19.51.36256.0/link:SHARED
+Opened the stream SessionMarkers.
+Received header for stream SessionMarkers.
+Opened the stream PLUX.
+Received header for stream PLUX.
+Started data collection for stream PLUX.
+Started data collection for stream SessionMarkers.
+Offsets thread is finished
+Offsets thread is finished
+Wrote footer for stream PLUX.
+Wrote footer for stream SessionMarkers.
+Closing the file.

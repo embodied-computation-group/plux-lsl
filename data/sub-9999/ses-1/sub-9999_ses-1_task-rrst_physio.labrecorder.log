@@ -1,0 +1,27 @@
+Found PLUX@DESKTOP-FKO5BV3 matching 'name='PLUX''
+Found Flow@DESKTOP-FKO5BV3 matching 'name='Flow''
+Found SessionMarkers@DESKTOP-FKO5BV3 matching 'name='SessionMarkers''
+Found RRST@DESKTOP-FKO5BV3 matching 'name='RRST''
+Starting the recording, press Enter to quit
+Opened the stream SessionMarkers.
+Opened the stream RRST.
+Received header for stream SessionMarkers.
+Received header for stream RRST.
+Opened the stream PLUX.
+Opened the stream Flow.
+Received header for stream Flow.
+Received header for stream PLUX.
+Started data collection for stream RRST.
+Started data collection for stream PLUX.
+Started data collection for stream SessionMarkers.
+Started data collection for stream Flow.
+2026-10-28 22:16:22.223 ( 482.294s) [R_RRST          ]      data_receiver.cpp:375    ERR| Stream transmission broke off (requested integer size exceeds type size: 120); re-connecting...
+Offsets thread is finishedOffsets thread is finished
+
+Offsets thread is finished
+Offsets thread is finished
+Wrote footer for stream PLUX.
+Wrote footer for stream RRST.
+Wrote footer for stream Flow.
+Wrote footer for stream SessionMarkers.
+Closing the file.

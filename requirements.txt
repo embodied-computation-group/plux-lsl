@@ -1,0 +1,11 @@
+# Python 3.13 (PLUX's API has no 3.11 build); PLUX API binaries are in vendor/plux
+pylsl==1.18.6
+pyxdf==1.18.0
+numpy==2.5.4
+scipy==1.18.1
+matplotlib==3.11.2
+# flow sensor (Sensirion SFM3019 via SensorBridge)
+pyserial==3.5
+sensirion-shdlc-driver==0.1.5
+sensirion-shdlc-sensorbridge==0.1.1
+sensirion-sensorbridge-i2c-sfm==0.2.0

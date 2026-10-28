@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+.venv/
+
+# Per-PC: LabRecorder is downloaded (see README), devices.json is this PC's device choice
+LabRecorder/
+devices.json
+logs/
+
+# Recordings: participant data never goes in git. Only the researchers' own
+# pilot/test recordings are listed here explicitly.
+data/*
+!data/sub-9999/
+!data/sub-test/
