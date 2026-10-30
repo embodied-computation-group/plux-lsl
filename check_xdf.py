@@ -10,6 +10,7 @@ import numpy as np
 import pyxdf
 
 from flow_quality import check_flow
+from rrst_markers import is_kids, kids_summary
 from quality import BAD, OK, check_common, check_ecg, check_resp, to_units
 
 SEGMENT_S = 10
@@ -62,6 +63,16 @@ def rrst_trigger_check(values):
         text += " - triggers incomplete (expected 2 onsets per trial)" if ended else \
                 " - task not finished when recording stopped?"
     return text, ok
+
+
+def rrst_check(values, session_end):
+    """[(text, ok)] for the RRST stream: the kids task (RRST-Kids) or the adult task."""
+    if not values:
+        return [("RRST: no task markers recorded - the task was not running while recording, "
+                 "or was still waiting at its start prompt", False)]
+    if is_kids(values):
+        return kids_summary(values, session_end)
+    return [rrst_trigger_check(values)]
 
 
 def plux_quality(plux, start, end):
@@ -135,6 +146,7 @@ def assess(path, expect=("PLUX",)):
     streams, _ = pyxdf.load_xdf(str(path))
     lines = []
     by_name, session = {}, {}
+    rrst = None  # (position in lines, RRST marker values)
     for s in streams:
         info = s["info"]
         name = info["name"][0]
@@ -147,13 +159,16 @@ def assess(path, expect=("PLUX",)):
                 session.setdefault(v, t)
         else:
             onsets = sum("_onset" in v for v in values)
-            lines.append((f"{name} triggers: {len(values)}" + (f" ({onsets} onsets)" if onsets else ""),
+            what = "slurps" if name == "RRST" and is_kids(values) else "onsets"
+            lines.append((f"{name} triggers: {len(values)}" + (f" ({onsets} {what})" if onsets else ""),
                           len(values) > 0))
             if name == "RRST":
-                lines.append(rrst_trigger_check(values))
-    ok = all(good is not False for _t, good in lines)
+                rrst = (len(lines), values)
     start = next((t for m, t in session.items() if m.endswith("_start")), None)
     end_label = next((m for m in session if m.endswith(("_end", "_end_early"))), None)
+    if rrst is not None:
+        lines[rrst[0]:rrst[0]] = rrst_check(rrst[1], end_label)
+    ok = all(good is not False for _t, good in lines)
     end = session[end_label] if end_label else None
     if start is not None and end is not None:
         early = end_label.endswith("_end_early")
