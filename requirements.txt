@@ -9,3 +9,5 @@ pyserial==3.5
 sensirion-shdlc-driver==0.1.5
 sensirion-shdlc-sensorbridge==0.1.1
 sensirion-sensorbridge-i2c-sfm==0.2.0
+# tests (tests/): .venv\Scripts\python.exe -m pytest
+pytest==9.2.0

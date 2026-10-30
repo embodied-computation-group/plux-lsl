@@ -32,6 +32,7 @@ from pylsl import StreamInfo, StreamInlet, StreamOutlet, cf_string, local_clock,
 from check_xdf import assess
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from recorder import DATA_DIR, LOG_DIR, ROOT, output_path, start_recorder, stop_recorder
+from task_runs import TaskRuns
 
 # shown name -> file label; minutes (None = task: no fixation screen, runs until Stop);
 # the task's LSL marker stream that must be online before recording starts; and
@@ -158,11 +159,11 @@ class App:
         self.task = None
         self.start_seq = self.end_seq = None
         self.next_log = 0
-        self.task_watch = None  # {"name", "uid"}: the task's trigger stream while checking
+        self.task_name = None   # the task's trigger stream being watched (preset "markers")
+        self.runs = TaskRuns()  # its runs (uids) and which were recorded: each run auto-starts once
         self.task_resolving = False
         self.next_task_resolve = 0
         self.session_on = False  # Check signals done and not disconnected (with or without the hub)
-        self.recorded_tasks = set()  # uids of task runs already recorded: never auto-start twice
         self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last"} for the state line
         self.marker_stop = None  # threading.Event that stops the task-marker counter
         self.error_text, self.error_until = "", 0.0  # internal error note kept on the banner
@@ -465,7 +466,9 @@ class App:
                      "failed": "  |  Flow sensor: NOT CONNECTED"}[self.flow["status"]]
         preset = self.preset()
         if self.state == "checking" and preset and preset["markers"]:
-            text += f"  |  {preset['markers']}: " + ("running" if self.task_watch else "not started yet")
+            text += f"  |  {preset['markers']}: " + (
+                "running, already recorded (Start recording records it again)" if self.runs.current_recorded()
+                else "running" if self.runs.current else "not started yet")
         self.hub_status.config(text=text)
 
     def flow_statuses(self):
@@ -624,10 +627,9 @@ class App:
                 self.set_banner("No devices in use: only the task triggers will be recorded.", WARN)
             else:
                 self.set_banner("All signals good - ready to record.", OK)
-            watch = self.task_watch
-            if watch and watch["uid"] not in self.recorded_tasks and flow is not None \
+            if self.runs.is_new() and flow is not None \
                     and flow["status"] == "failed":  # task waiting, auto-start held back
-                self.set_banner(f"{watch['name']} is waiting for the recorder, but the flow sensor is not "
+                self.set_banner(f"{self.task_name} is waiting for the recorder, but the flow sensor is not "
                                 "connected: click Retry flow sensor, or Start recording to record without it.", BAD)
             drawn = False
             if mon is not None and mon.seconds_buffered >= 1:
@@ -642,24 +644,25 @@ class App:
 
     # ---------- task trigger watch ----------
     def watch_task(self):
-        """While checking, look for the task's trigger stream. When a task run appears (a new stream
-        uid) start recording automatically: RAs forget to press Start, and the task waits until a
-        recorder receives its triggers. Resolve only - an open inlet here would look like a recorder."""
+        """Look for the task's trigger stream in every state (a run that appears while a recording
+        is starting, running or saving is kept in self.runs). While checking, a run not yet
+        recorded starts recording automatically: RAs forget to press Start, and the task waits
+        until a recorder receives its triggers. Resolve only - an open inlet here would look like
+        a recorder."""
         preset = self.preset()
         name = preset["markers"] if preset else None
-        if self.state != "checking" or not name:
-            if self.task_watch is not None:
-                self.task_watch = None
+        if name != self.task_name:
+            self.task_name = name
+            if self.runs.seen(None):
                 self.update_hub_text()
+        if not name:
             return
         if not self.task_resolving and time.monotonic() >= self.next_task_resolve:
             self.task_resolving = True
             threading.Thread(target=self.resolve_task, args=(name,), daemon=True).start()
-        watch = self.task_watch
-        if watch is None or watch["name"] != name or watch["uid"] in self.recorded_tasks:
-            return  # recorded_tasks: each task run is auto-started once only
-        if self.flow_expected() and (self.flow is None or self.flow["status"] != "ok"):
-            return  # wait for the flow sensor so it is in the recording (banner explains if it failed)
+        flow_ready = not self.flow_expected() or (self.flow is not None and self.flow["status"] == "ok")
+        if not self.runs.should_auto_start(self.state, flow_ready):
+            return  # each run once; wait for the flow sensor so it is in the recording (banner explains)
         log.warning("%s stream appeared while not recording: starting automatically", name)
         self.root.bell()
         self.start_recording(auto=f"{name} started")
@@ -667,20 +670,23 @@ class App:
     def resolve_task(self, name):
         """Background: find the newest stream called `name` (a restarted task has a new uid)."""
         found = resolve_byprop("name", name, timeout=1.0)
-        info = max(found, key=lambda i: i.created_at()) if found else None
-        watch = {"name": name, "uid": info.uid()} if info else None
-        self.root.after(0, lambda: self.on_task_resolved(watch))
+        uid = max(found, key=lambda i: i.created_at()).uid() if found else None
+        self.root.after(0, lambda: self.on_task_resolved(name, uid))
 
-    def on_task_resolved(self, watch):
+    def on_task_resolved(self, name, uid):
         self.task_resolving = False
         self.next_task_resolve = time.monotonic() + TASK_RESOLVE_S
-        if self.state != "checking":
+        if name != self.task_name:
             return
-        changed = (watch is None) != (self.task_watch is None)
-        self.task_watch = watch
-        if changed:
-            log.info("task trigger stream %s", "found" if watch else "gone")
+        if self.runs.seen(uid):
+            log.info("task trigger stream %s (%s, %s)", "found" if uid else "gone", self.state,
+                     "already recorded" if self.runs.current_recorded() else "new run" if uid else "-")
             self.update_hub_text()
+
+    def mark_recorded(self, name):
+        """Background, at recording start: every run of the task online now is in this recording."""
+        uids = [info.uid() for info in resolve_byprop("name", name, minimum=10, timeout=1.0)]
+        self.root.after(0, lambda: self.runs.mark_recorded(*uids))
 
     def set_banner(self, text, colour):
         if time.monotonic() < self.error_until:  # an internal error stays on top for a while
@@ -724,8 +730,7 @@ class App:
             if auto:  # can't record without a valid name; no dialog over the task
                 log.error("%s but cannot auto-start: %s", auto, problems)
                 self.set_banner(f"{auto} - NOT RECORDING: fill in the form and click Start recording.", BAD)
-                if self.task_watch is not None:
-                    self.recorded_tasks.add(self.task_watch["uid"])
+                self.runs.mark_recorded(self.runs.current)
                 return
             messagebox.showwarning("Check the form", "\n".join(problems))
             return
@@ -748,8 +753,7 @@ class App:
             return
         preset = self.preset()
         needed = preset["markers"] if preset else None
-        if self.task_watch is not None:
-            self.recorded_tasks.add(self.task_watch["uid"])
+        self.runs.mark_recorded(self.runs.current)
         if needed and not auto and not resolve_byprop("name", needed, timeout=2):
             if not messagebox.askyesno(
                     "Task triggers not found",
@@ -777,7 +781,10 @@ class App:
             proc, names = start_recorder(self.path, console=False,
                                          optional=("Flow",) if self.expect_flow else (),
                                          required=("PLUX",) if self.expect_plux else ())
-            time.sleep(LEAD_IN_S)
+            t0 = time.monotonic()
+            if needed:
+                self.mark_recorded(needed)
+            time.sleep(max(0.0, LEAD_IN_S - (time.monotonic() - t0)))
             self.root.after(0, lambda: self.on_recorder_ready(proc, names))
         threading.Thread(target=launch, daemon=True).start()
 
