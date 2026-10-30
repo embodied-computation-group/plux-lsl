@@ -27,7 +27,7 @@ from tkinter import messagebox, ttk
 import lsl_quiet  # noqa: F401  (must precede pylsl)
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-from pylsl import StreamInfo, StreamOutlet, cf_string, local_clock, resolve_byprop
+from pylsl import StreamInfo, StreamInlet, StreamOutlet, cf_string, local_clock, resolve_byprop
 
 from check_xdf import assess
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
@@ -162,7 +162,9 @@ class App:
         self.next_task_resolve = 0
         self.session_on = False  # Check signals done and not disconnected (with or without the hub)
         self.recorded_tasks = set()  # uids of task runs already recorded: never auto-start twice
-        self.markers = StreamOutlet(StreamInfo("SessionMarkers", "Markers", 1, 0, cf_string,
+        self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last"} for the state line
+        self.marker_stop = None  # threading.Event that stops the task-marker counter
+        self.markers =StreamOutlet(StreamInfo("SessionMarkers", "Markers", 1, 0, cf_string,
                                                "plux-lsl-session"))
 
         root.title("Physio Recorder")
@@ -217,6 +219,9 @@ class App:
 
         self.hub_status = ttk.Label(root, text="Hub: not connected", padding=(10, 6, 10, 0))
         self.hub_status.pack(fill="x")
+        # One line that always says whether a recording is running; it ticks while it is.
+        self.state_line = tk.Label(root, text="", font=("Segoe UI", 12, "bold"), anchor="w", padx=10)
+        self.state_line.pack(fill="x")
         self.banner = tk.Label(root, text="Fill in participant and session, then click Check signals.",
                                font=BIG, anchor="w", padx=10, pady=6)
         self.banner.pack(fill="x")
@@ -509,7 +514,65 @@ class App:
             log.exception("tick failed")
         self.root.after(200, self.tick)
 
+    def update_state_line(self):
+        """RECORDING sub-X ses-Y since HH:MM (m:ss), N markers, last: <label>; or what the app is doing."""
+        info, state = self.rec_info, self.state
+        if state == "recording" and info and info["since"]:
+            secs = int((datetime.datetime.now() - info["since"]).total_seconds())
+            text = (f"RECORDING sub-{info['sub']} ses-{info['ses']} since {info['since']:%H:%M} "
+                    f"({secs // 60}:{secs % 60:02d})")
+            if info["markers"]:
+                text += f", {info['count']} {info['markers']} markers, last: {info['last'] or 'none yet'}"
+            elif self.minutes_value:
+                text += f" of {self.minutes_value:g} min"
+            colour = OK
+        elif state == "starting" and self.screen is not None:  # timed window, waiting for Space
+            text, colour = "Recorder running - press Space on the participant screen to start", WARN
+        elif state == "starting":
+            text, colour = "STARTING the recorder ...", WARN
+        elif state == "saving":
+            text, colour = "SAVING the recording ...", WARN
+        elif self.session_on:
+            text, colour = "Not recording", "#666"
+        else:
+            text, colour = "", "#666"
+        if self.state_line.cget("text") != text:
+            self.state_line.config(text=text, fg=colour)
+
+    def start_marker_count(self, name):
+        """Count the task's markers while it is recorded, for the state line. An inlet is fine now
+        (the recorder is already connected); never open one while checking: it would look like a
+        recorder to the task."""
+        stop, info = threading.Event(), self.rec_info
+
+        def run():
+            inlet = None
+            try:
+                while not stop.is_set():
+                    if inlet is None:
+                        found = resolve_byprop("name", name, timeout=1.0)
+                        if found:
+                            inlet = StreamInlet(max(found, key=lambda i: i.created_at()))
+                        continue
+                    sample, _ = inlet.pull_sample(timeout=0.5)
+                    if sample:
+                        info["count"] += 1
+                        info["last"] = sample[0]
+            except Exception:
+                log.exception("marker counter failed")
+            finally:
+                if inlet is not None:
+                    inlet.close_stream()
+        threading.Thread(target=run, daemon=True).start()
+        self.marker_stop = stop
+
+    def stop_marker_count(self):
+        if self.marker_stop is not None:
+            self.marker_stop.set()
+            self.marker_stop = None
+
     def _tick(self):
+        self.update_state_line()
         if self.bridge is not None and self.bridge.poll() is not None and self.state != "connecting":
             log.error("bridge exited with %s", self.bridge.returncode)
             self.bridge = None
@@ -667,6 +730,8 @@ class App:
         self.expect_flow = self.flow_expected()
         self.expect_plux = self.monitor is not None
         self.path = output_path(DATA_DIR, sub, ses, task)
+        self.rec_info = {"sub": sub, "ses": ses, "since": None, "markers": needed if minutes is None else None,
+                         "count": 0, "last": None}
         self.clear_summary(note=f"Recording {self.path.name} ...")
         self.state = "starting"
         for b in (self.btn_record, self.btn_disconnect, self.btn_check):
@@ -697,13 +762,14 @@ class App:
         if self.minutes_value is None:  # task: the task owns the screen
             self.begin_window()
             self.btn_record.config(text="Stop recording", command=self.stop_task, state="normal")
-            if self.auto_reason:  # the task is already on screen; don't minimise or steal focus
+            # This window stays where it is (the task runs on the participant screen): hiding it
+            # looked like a crash. The state line above shows the recording is alive.
+            if self.auto_reason:
                 self.set_banner(f"Recording started AUTOMATICALLY: {self.auto_reason} before Start recording "
                                 f"was clicked ({', '.join(names)}). Click Stop recording when the task ends.", WARN)
                 return
-            self.set_banner(f"Recording ({', '.join(names)}). Switch to the task now; "
-                            "come back and click Stop recording when it ends.", OK)
-            self.root.iconify()
+            self.set_banner(f"Recording ({', '.join(names)}). Run the task now; "
+                            "click Stop recording here when it ends.", OK)
             return
         self.set_banner("Participant screen is up. Press Space on it to start the window "
                         "(Esc twice, then Y, stops early).", WARN)
@@ -717,6 +783,10 @@ class App:
         self.state = "recording"
         self.next_log = time.monotonic() + 60
         log.info("%s_start at nSeq %s", self.task, self.start_seq)
+        if self.rec_info is not None:
+            self.rec_info["since"] = datetime.datetime.now()
+            if self.rec_info["markers"]:
+                self.start_marker_count(self.rec_info["markers"])
 
     def stop_task(self):
         if messagebox.askyesno("Stop recording", "Has the task finished? Stop the recording now?"):
@@ -743,7 +813,11 @@ class App:
         if self.state != "recording":
             return
         self.markers.push_sample([label], local_clock())
-        log.info("%s (lost=%s)", label, lost)
+        info = self.rec_info or {}
+        log.info("%s (lost=%s)%s", label, lost,
+                 f", {info['count']} {info['markers']} markers seen, last {info['last']}" if info.get("markers")
+                 else "")
+        self.stop_marker_count()
         self.state = "saving"
         if self.screen is not None:
             self.screen.finished()
@@ -837,6 +911,7 @@ class App:
                 self.markers.push_sample([f"{self.task}_end_early"], local_clock())
             if self.recorder is not None:
                 stop_recorder(self.recorder)
+        self.stop_marker_count()
         self.stop_bridge()
         self.stop_flow()
         self.root.destroy()
