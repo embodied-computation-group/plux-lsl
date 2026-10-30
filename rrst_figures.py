@@ -5,12 +5,16 @@ Usage (from the plux-lsl folder):
     .venv\\Scripts\\python.exe rrst_figures.py <file>.xdf --task-csv <RRST task .csv>   # recordings before 2026-10-29
     add --open to open the figures folder afterwards
 
-Writes PNGs into <file>_figures\\ next to the recording:
+Writes PNGs into <file>_figures\\ next to the recording (or --out <folder>):
   RRST session (markers trial_<n>_interval<k>_onset_load|null):
     1_session.png   belt and flow over the whole session, inhale cues marked
     2_aligned.png   every breath aligned on its inhale cue, null vs load (belt, flow)
     3_by_trial.png  staircase level per trial; null and load peak flow per trial
     4_breaths.png   one panel per trial: its null and load flow curves overlaid
+  RRST-Kids session (markers trial_<n>_level_<x>, trial_<n>_go, slurp_<k>_..., see rrst_markers.py):
+    1_session.png   flow (and belt) over the whole session, every slurp onset and trial marked
+    2_trials.png    one panel per trial: its slurps aligned on trial_<n>_go; level and answer in the title
+    3_slurps.png    volume and peak of every counted slurp by level (free play and catch trials apart)
   Bench (bench/flowLevels.m, markers level_<x>_ready / _done):
     levels.png      flow at each wedge level: trace, breaths, peak, volume, time to peak
 
@@ -35,6 +39,7 @@ import pyxdf  # noqa: E402
 from scipy import signal as sps  # noqa: E402
 
 from quality import to_units  # noqa: E402
+from rrst_markers import is_kids, parse_kids  # noqa: E402
 
 INK, MUTED, GRID, SURF = "#1f1f1e", "#6b6a66", "#e6e5e1", "#fcfcfb"
 NULL, LOAD = "#2a78d6", "#eb6834"                                      # categorical slots 1 and 2
@@ -78,11 +83,14 @@ def load(path):
             belt = (tb, lowpass(x, fsb, 2), fsb)
 
     last = {}   # last occurrence of each marker: a repeated trial keeps its final attempt
+    ordered = []  # every task marker, (time, label), in time order
     for s in streams:
         if s["info"]["type"][0] == "Markers" and s["info"]["name"][0] != "SessionMarkers":
             for m, ts in zip(s["time_series"], s["time_stamps"]):
                 last[m[0]] = ts
-    return flow, belt, last
+                ordered.append((ts, m[0]))
+    ordered.sort(key=lambda x: x[0])
+    return flow, belt, last, ordered
 
 
 def save(fig, out, name):
@@ -270,6 +278,165 @@ def fig_breaths(flow, trials, out):
     save(fig, out, "4_breaths.png")
 
 
+# --- RRST-Kids ------------------------------------------------------------------------
+
+def kids_group(tr):
+    """Colour group of a kids trial: free play / free trial, catch (level 0) or load."""
+    if tr["free"]:
+        return "free"
+    return "catch" if not tr["level"] else "load"
+
+
+KIDS_COLOUR = {"free": MUTED, "catch": NULL, "load": LOAD}
+
+
+def kids_title(tr):
+    """'4 · 80 · yes ✓', 'demo pinch · 80', '1 · 0 · free'."""
+    head = f"demo {tr['demo']}" if tr["phase"] == "demo" else str(tr["n"])
+    parts = [head] + ([f"{tr['level']:g}"] if tr["level"] is not None else [])
+    if tr["free"]:
+        parts.append("free")
+    elif tr["answer"]:
+        parts.append(tr["answer"] + {True: " ✓", False: " ✗"}.get(tr["correct"], ""))
+    elif tr.get("aborted"):
+        parts.append("aborted")
+    return " · ".join(parts)
+
+
+def fig_kids_session(flow, belt, ordered, kids, out):
+    t0 = ordered[0][0]
+    t1 = ordered[-1][0] + 10
+    rows = [(sig, lab) for sig, lab in ((belt, "belt (%)"), (flow, "flow (slm)")) if sig]
+    fig, axes = plt.subplots(len(rows), 1, figsize=(15, 3.2 * len(rows) + 0.8), sharex=True, squeeze=False)
+    for ax, (sig, ylab) in zip(axes[:, 0], rows):
+        t, x, _ = sig
+        sel = (t >= t0 - 5) & (t <= t1)
+        for tr in kids["trials"]:
+            col = KIDS_COLOUR[kids_group(tr)]
+            for sl in tr["slurps"]:
+                if sl["onset"] is not None:
+                    ax.axvline(sl["onset"] - t0, color=col, lw=0.9, alpha=0.6, zorder=0)
+            if tr["t"] is not None and tr["phase"] != "freeplay":
+                ax.axvline(tr["t"] - t0, color=MUTED, lw=0.8, ls=":", zorder=0)
+        for ts, label in ordered:
+            if label in ("practice_start", "main_start", "rest_start", "aborted", "done"):
+                ax.axvline(ts - t0, color=INK, lw=1.2, ls="--", zorder=0)
+        ax.plot(t[sel] - t0, x[sel], color=INK, lw=0.8)
+        ax.set_ylabel(ylab)
+        ax.grid(axis="y", color=GRID, lw=0.8)
+    top = axes[0, 0]
+    for tr in kids["trials"]:
+        if tr["t"] is not None and tr["phase"] != "freeplay":
+            text = f"d{tr['demo'][0]}" if tr["phase"] == "demo" else str(tr["n"])
+            top.text(tr["t"] - t0, 1.01, f"{text}·{tr['level']:g}" if tr["level"] is not None else text,
+                     transform=top.get_xaxis_transform(), fontsize=7, color=MUTED, va="bottom", rotation=60)
+    for ts, label in ordered:
+        if label in ("practice_start", "main_start", "rest_start", "aborted", "done"):
+            top.text(ts - t0 + 1, 0.97, label.replace("_start", ""), transform=top.get_xaxis_transform(),
+                     fontsize=8, color=INK, va="top", ha="left",
+                     bbox=dict(facecolor=SURF, edgecolor="none", pad=1.5))
+    top.set_title("RRST-Kids: whole session. Coloured lines: slurp onsets (blue catch, orange load, grey free); "
+                  "dotted: trial start, labelled trial·level", loc="left", color=INK, pad=34)
+    axes[-1, 0].set_xlabel("time from the first task marker (s)")
+    save(fig, out, "1_session.png")
+
+
+def fig_kids_trials(flow, kids, out):
+    trials = [tr for tr in kids["trials"] if tr["go"] is not None]
+    t, x, _ = flow
+    ends = [max((sl["end"] or sl["onset"] or tr["go"]) for sl in tr["slurps"]) - tr["go"]
+            for tr in trials if tr["slurps"]]
+    post = min(25.0, (max(ends) if ends else 10.0) + 1.5)
+    cols = min(8, len(trials))
+    rows = int(np.ceil(len(trials) / cols))
+    fig, axes = plt.subplots(rows, cols, figsize=(2.0 * cols + 0.6, 1.8 * rows + 0.9),
+                             sharex=True, sharey=True, squeeze=False)
+    for ax in axes.flat[len(trials):]:
+        ax.axis("off")
+    for ax, tr in zip(axes.flat, trials):
+        sel = (t >= tr["go"] - 1) & (t <= tr["go"] + post)
+        ax.plot(t[sel] - tr["go"], x[sel], color=KIDS_COLOUR[kids_group(tr)], lw=1.4)
+        for sl in tr["slurps"]:
+            if sl["onset"] is not None:
+                ax.axvline(sl["onset"] - tr["go"], color=MUTED, lw=0.7, ls=":")
+            if sl["status"] in ("weak", "overlong") and sl["end"] is not None:
+                ax.text(sl["end"] - tr["go"], 0.95, "weak" if sl["status"] == "weak" else "long",
+                        transform=ax.get_xaxis_transform(), fontsize=7, color=MUTED, ha="center")
+        ax.axvline(0, color=INK, lw=0.8, ls="--")
+        ax.grid(axis="y", color=GRID, lw=0.6)
+        ax.set_title(kids_title(tr), fontsize=9, color=INK)
+        ax.tick_params(labelsize=8)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("slm", fontsize=8)
+    for ax in axes[-1]:
+        ax.set_xlabel("s from go", fontsize=8)
+    fig.suptitle("Each trial's slurps, aligned on the experimenter's go (dashed); dotted: slurp onsets. "
+                 "Title: trial · level · answer (✓ correct, ✗ wrong). Blue catch, orange load, grey free",
+                 x=0.01, ha="left", color=INK, fontsize=10)
+    fig.tight_layout()
+    save(fig, out, "2_trials.png")
+
+
+def fig_kids_slurps(kids, out):
+    pts = []  # (group key, main?, volume, peak)
+    for tr in kids["trials"]:
+        key = "free" if tr["free"] else tr["level"]
+        for sl in tr["slurps"]:
+            if sl["status"] == "counted" and key is not None:
+                pts.append((key, tr["phase"] == "main", sl["volume"], sl["peak"]))
+    if not pts:
+        print("   (no counted slurps: slurp figure left out)")
+        return
+    levels = sorted({k for k, *_ in pts if k != "free"})
+    keys = (["free"] if any(k == "free" for k, *_ in pts) else []) + levels
+    names = {k: "free" if k == "free" else "0 (catch)" if k == 0 else f"{k:g}" for k in keys}
+    fig, axes = plt.subplots(1, 2, figsize=(max(8, 1.6 * len(keys) * 2 + 2), 4.2))
+    for ax, j, ylab in ((axes[0], 2, "volume (L)"), (axes[1], 3, "peak flow (slm)")):
+        for i, k in enumerate(keys):
+            col = KIDS_COLOUR["free" if k == "free" else "catch" if k == 0 else "load"]
+            vals = [(p[1], p[j]) for p in pts if p[0] == k and p[j] is not None]
+            jit = np.linspace(-0.22, 0.22, len(vals)) if len(vals) > 1 else [0.0]
+            for dx, (main, v) in zip(jit, vals):
+                ax.scatter(i + dx, v, s=42, zorder=3, lw=1.6, edgecolor=col if not main else SURF,
+                           facecolor=col if main else SURF)
+            if vals:
+                ax.plot([i - 0.3, i + 0.3], [np.median([v for _, v in vals])] * 2, color=INK, lw=2, zorder=4)
+                ax.text(i, 1.0, f"n={len(vals)}", transform=ax.get_xaxis_transform(), ha="center",
+                        va="bottom", fontsize=8, color=MUTED)
+        if 0 in keys and len(levels) > 1:
+            ax.axvline(keys.index(0) + 0.5, color=GRID, lw=1.5)
+        ax.set_xticks(range(len(keys)), [names[k] for k in keys])
+        ax.set_xlim(-0.6, len(keys) - 0.4)
+        ax.set_ylim(bottom=0)
+        ax.set_xlabel("level")
+        ax.set_ylabel(ylab)
+        ax.grid(axis="y", color=GRID, lw=0.8)
+    fig.suptitle("Every counted slurp by level (the task's own volume and peak); bar = median. "
+                 "Filled: main trials; hollow: practice, demos, free play", x=0.01, ha="left", color=INK,
+                 fontsize=10)
+    fig.tight_layout()
+    save(fig, out, "3_slurps.png")
+
+
+def kids_figures(flow, belt, ordered, out):
+    kids = parse_kids([v for _, v in ordered], [t for t, _ in ordered])
+    if kids["end"] == "aborted" and kids["trials"] and kids["trials"][-1]["answer"] is None:
+        kids["trials"][-1]["aborted"] = True
+    n_tr = sum(tr["phase"] in ("practice", "main") and not tr["free"] for tr in kids["trials"])
+    n_sl = sum(len(tr["slurps"]) for tr in kids["trials"])
+    print(f"   RRST-Kids: {n_tr} trials, {n_sl} slurps, end: {kids['end'] or 'none'}")
+    if not belt:
+        print("   (no breathing belt: belt panel left out)")
+    fig_kids_session(flow, belt, ordered, kids, out)
+    if not flow:
+        print("   (no Flow stream: trial and slurp figures left out)")
+    elif any(tr["go"] is not None for tr in kids["trials"]):
+        fig_kids_trials(flow, kids, out)
+    else:
+        print("   (no trial_<n>_go markers: trial figure left out)")
+    fig_kids_slurps(kids, out)
+
+
 # --- bench: wedge levels -------------------------------------------------------------
 
 def fig_levels(flow, last, out):
@@ -357,12 +524,13 @@ def main():
     ap.add_argument("xdf")
     ap.add_argument("--task-csv", help="RRST task .csv, for recordings without trial_<n>_level markers")
     ap.add_argument("--open", action="store_true", help="open the figures folder afterwards")
+    ap.add_argument("--out", help="folder for the figures (default: <file>_figures next to the recording)")
     args = ap.parse_args()
 
     path = Path(args.xdf)
-    out = path.parent / f"{path.stem}_figures"
-    out.mkdir(exist_ok=True)
-    flow, belt, last = load(path)
+    out = Path(args.out) if args.out else path.parent / f"{path.stem}_figures"
+    out.mkdir(parents=True, exist_ok=True)
+    flow, belt, last, ordered = load(path)
     print(f"Figures for {path.name}:")
     if not flow and not belt:
         print("   No Flow stream and no breathing belt in this recording: no figures.")
@@ -372,6 +540,11 @@ def main():
             fig_levels(flow, last, out)
         else:
             print("   Bench recording without Flow: no figures.")
+        return
+    if ordered and is_kids([v for _, v in ordered]):
+        kids_figures(flow, belt, ordered, out)
+        if args.open:
+            os.startfile(out)
         return
     trials = trials_from(last, args.task_csv)
     if not trials:

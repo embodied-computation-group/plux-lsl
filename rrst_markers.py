@@ -42,7 +42,8 @@ def parse_kids(values, times=None):
 
     Returns {"trials": [...], "end": "done" | "aborted" | None, "main_started": bool}. Each trial:
     {"n", "phase": freeplay | demo | practice | main, "demo", "level", "t", "go", "question",
-     "answer": yes | no | bad | none | pause | None, "correct": True | False | None, "slurps": [...]};
+     "answer": yes | no | bad | none | pause | None, "correct": True | False | None,
+     "free": free play or a free trial (no question), "slurps": [...]};
     each slurp {"k", "onset", "end", "status": counted | weak | overlong | None, "volume", "peak"}.
     Times are the marker times (the marker's index without `times`). Free play is one "trial"
     with n None.
@@ -103,6 +104,11 @@ def parse_kids(values, times=None):
             tr = next((tr for tr in reversed(trials) if tr["n"] == n), None)
             if tr is not None:
                 tr["correct"] = m[2] == "correct"
+    for i, tr in enumerate(trials):  # free trials (earlier versions, tutorial off) have no question;
+        # the last trial without one may just be unfinished
+        tr["free"] = tr["phase"] == "freeplay" or (
+            tr["phase"] == "practice" and tr["go"] is not None and tr["question"] is None
+            and tr["answer"] is None and i < len(trials) - 1)
     return {"trials": trials, "end": end, "main_started": phase == "main"}
 
 
@@ -141,9 +147,7 @@ def kids_summary(values, session_end=None):
         w = sum(t["correct"] is False for t in done[ph])
         return f"{ph} {len(done[ph])} ({c} correct, {w} wrong)" if done[ph] else f"{ph} 0"
 
-    # free trials (earlier versions, tutorial off): no question; the last trial may just be unfinished
-    free = sum(t["phase"] == "practice" and t["go"] is not None and t["question"] is None
-               and t["answer"] is None for t in trials[:-1])
+    free = sum(t["free"] and t["phase"] == "practice" for t in trials)
     slurps = [s for t in trials for s in t["slurps"]]
     count = {st: sum(s["status"] == st for s in slurps) for st in ("counted", "weak", "overlong")}
     text = f"RRST-Kids trials: {part('practice')}, {part('main')}"

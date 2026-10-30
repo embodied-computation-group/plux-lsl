@@ -65,6 +65,7 @@ def test_parses_trials_slurps_and_phases():
     assert s7[0]["onset"] is not None and s7[0]["end"] is not None
     assert by_n[8]["answer"] == "bad" and by_n[8]["slurps"][0]["status"] is None
     assert by_n[9]["level"] == 70 and by_n[9]["correct"] is True
+    assert free[0]["free"] and not any(t["free"] for t in p["trials"] if t["phase"] != "freeplay")
 
 
 def test_summary_of_a_complete_session():
