@@ -46,6 +46,13 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 7. Check the **Last recording** panel: PASS / CHECK. `RRST triggers: N (k onsets)`: each trial sends
    about 9 triggers, 2 of them onsets (one per breath). The pilot's 100 trials give about 900 triggers
    and 200 onsets, plus a few more for repeated trials. A shorter or aborted run gives fewer.
+   **RRST-Kids** (`runKidsRRST`) is recognised by its triggers and summarised as, e.g.:
+   - `RRST-Kids: finished (40 main trials)`, or `RRST-Kids: aborted by the experimenter after 8 trials
+     (practice only, no main trials)`. Aborting is a normal outcome, not a failure.
+   - `RRST-Kids trials: practice 6 (5 correct, 1 wrong), main 40 (...); slurps 150 (141 counted, 9 weak)`:
+     a trial counts once its answer (or bad breath / no answer / pause) is entered; each trial has 3 slurps.
+   - **Open figures** shows the whole session with every slurp, one panel per trial, and slurp volume and
+     peak by level.
 
 ## Devices on this PC
 
@@ -54,10 +61,25 @@ remembered (in `devices.json`) and can be changed only while disconnected. An un
 started, not waited for, and not expected in the summary. RRST then records with whatever is ticked:
 hub + flow, hub only, flow only, or task triggers only. Rest recordings need the PLUX hub.
 
+## What the window shows
+
+- The line under the hub status says what is happening, at a glance:
+  `RECORDING sub-01 ses-1 since 10:39 (4:12), 57 RRST markers, last: trial_5_go` while a task is recorded
+  (the time ticks; the marker count grows as the task runs), `SAVING the recording ...` after Stop, and
+  `Not recording` otherwise.
+- The window never hides itself during a recording: the task runs on the participant screen, the app
+  stays where it is.
+- The large banner below it says what to do next, or what is wrong.
+
 ## What the warnings mean
 
 | Message | What to do |
 |---|---|
+| The Physio Recorder window seems to have vanished | It does not close or hide itself during a recording. Look on the taskbar / the other screen (it may be behind the task). The state line says whether it is still recording. |
+| `Internal error: see logs\app_<date>.log` (banner) | Something unexpected went wrong inside the app; the details are in that log. Recording usually goes on: check the state line, then tell the researcher and send the log. |
+| `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Stop, and the new task run is picked up (recording restarts by itself). |
+| `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
+| `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
 | `Could not connect to the hub` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Then *Check signals* again. |
 | `NO DATA` / `Lost the hub` | Hub turned off, out of range or battery empty. Recording up to that point is saved. |
 | `FLAT - sensor not connected or not on the body` | Sensor cable not plugged into the hub, or sensor not on the participant. |
@@ -76,7 +98,10 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 ## For researchers
 
 - `record.py`: command-line recorder (`--sub 01 --ses 1 --minutes 5`, or `--task rrst` to record until Ctrl+C).
-- `check_xdf.py <file>`: the PASS/CHECK summary for any recording.
+- `check_xdf.py <file>`: the PASS/CHECK summary for any recording (adult RRST and RRST-Kids; `rrst_markers.py`
+  parses the kids markers).
+- `rrst_figures.py <file> [--out <folder>]`: the RRST figures (adult, kids or bench), run by the app after Stop.
+- Tests: `.venv\Scripts\python.exe -m pytest` (in `tests\`).
 - `epoch.py <file> --stream Flow --events "interval\d_onset_" --pre 1 --post 3 --groups load null`:
   per-trial epochs + averages (RRST markers: see the rrst-toolkit README, "Event markers (LSL)").
 - `segments.py <file> --start "level_(\w+)_ready" --end "level_{}_done"`: variable-length segments
