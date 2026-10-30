@@ -53,6 +53,7 @@ FONT = ("Segoe UI", 11)
 BIG = ("Segoe UI", 14, "bold")
 
 log = logging.getLogger("physio_app")
+LOG_FILE = LOG_DIR / f"app_{datetime.date.today():%Y%m%d}.log"
 
 
 def load_devices():
@@ -164,7 +165,9 @@ class App:
         self.recorded_tasks = set()  # uids of task runs already recorded: never auto-start twice
         self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last"} for the state line
         self.marker_stop = None  # threading.Event that stops the task-marker counter
-        self.markers =StreamOutlet(StreamInfo("SessionMarkers", "Markers", 1, 0, cf_string,
+        self.error_text, self.error_until = "", 0.0  # internal error note kept on the banner
+        self.last_error, self.last_error_t = None, 0.0
+        self.markers = StreamOutlet(StreamInfo("SessionMarkers", "Markers", 1, 0, cf_string,
                                                "plux-lsl-session"))
 
         root.title("Physio Recorder")
@@ -511,7 +514,7 @@ class App:
         try:
             self._tick()
         except Exception:
-            log.exception("tick failed")
+            self.internal_error("tick failed", sys.exc_info())
         self.root.after(200, self.tick)
 
     def update_state_line(self):
@@ -680,7 +683,36 @@ class App:
             self.update_hub_text()
 
     def set_banner(self, text, colour):
+        if time.monotonic() < self.error_until:  # an internal error stays on top for a while
+            text, colour = f"{self.error_text}\n{text}", BAD
         self.banner.config(text=text, fg=colour)
+
+    # ---------- errors: never fail silently (pythonw has no console) ----------
+    def internal_error(self, what, exc_info):
+        """Log an unexpected exception (once per kind per minute) and say so on the banner."""
+        key = (exc_info[0], str(exc_info[1]))
+        now = time.monotonic()
+        if key != self.last_error or now - self.last_error_t > 60:
+            log.error("%s", what, exc_info=exc_info)
+            self.last_error, self.last_error_t = key, now
+        self.error_text = f"Internal error: see logs\\{LOG_FILE.name}"
+        self.error_until = now + 60
+        self.set_banner(self.banner.cget("text").split("\n")[-1], BAD)
+
+    def tk_error(self, exc, val, tb):
+        """root.report_callback_exception: a button or after() callback raised."""
+        self.internal_error("Tk callback failed", (exc, val, tb))
+
+    def thread_error(self, args):
+        """threading.excepthook: a background thread raised."""
+        if issubclass(args.exc_type, SystemExit):
+            return
+        name = args.thread.name if args.thread else "?"
+        exc_info = (args.exc_type, args.exc_value, args.exc_traceback)
+        try:
+            self.root.after(0, lambda: self.internal_error(f"thread {name} failed", exc_info))
+        except RuntimeError:  # Tk already gone
+            log.error("thread %s failed", name, exc_info=exc_info)
 
     # ---------- recording ----------
     def start_recording(self, auto=None):
@@ -926,15 +958,21 @@ def main():
     args = ap.parse_args()
 
     LOG_DIR.mkdir(exist_ok=True)
-    logging.basicConfig(filename=LOG_DIR / f"app_{datetime.date.today():%Y%m%d}.log", level=logging.INFO,
+    logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except (AttributeError, OSError):
         pass
-    root = tk.Tk()
-    App(root, args)
-    root.mainloop()
+    try:
+        root = tk.Tk()
+        app = App(root, args)
+        root.report_callback_exception = app.tk_error
+        threading.excepthook = app.thread_error
+        root.mainloop()
+    except Exception:
+        log.exception("Physio Recorder failed")
+        raise
 
 
 if __name__ == "__main__":
