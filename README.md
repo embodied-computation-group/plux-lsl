@@ -122,3 +122,7 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 5. Open the app and set **Devices** for this PC.
 
 Recordings in `data\` stay out of git, except the researchers' own pilot recordings listed in `.gitignore`.
+
+## License
+
+Apache 2.0; see [LICENSE](LICENSE). The PLUX API in `vendor/plux/` is distributed under its own Apache 2.0 licence.
