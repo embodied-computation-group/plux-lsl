@@ -46,13 +46,6 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 7. Check the **Last recording** panel: PASS / CHECK. `RRST triggers: N (k onsets)`: each trial sends
    about 9 triggers, 2 of them onsets (one per breath). The pilot's 100 trials give about 900 triggers
    and 200 onsets, plus a few more for repeated trials. A shorter or aborted run gives fewer.
-   **RRST-Kids** (`runKidsRRST`) is recognised by its triggers and summarised as, e.g.:
-   - `RRST-Kids: finished (40 main trials)`, or `RRST-Kids: aborted by the experimenter after 8 trials
-     (practice only, no main trials)`. Aborting is a normal outcome, not a failure.
-   - `RRST-Kids trials: practice 6 (5 correct, 1 wrong), main 40 (...); slurps 150 (141 counted, 9 weak)`:
-     a trial counts once its answer (or bad breath / no answer / pause) is entered; each trial has 3 slurps.
-   - **Open figures** shows the whole session with every slurp, one panel per trial, and slurp volume and
-     peak by level.
 
 ## Devices on this PC
 
@@ -98,9 +91,8 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 ## For researchers
 
 - `record.py`: command-line recorder (`--sub 01 --ses 1 --minutes 5`, or `--task rrst` to record until Ctrl+C).
-- `check_xdf.py <file>`: the PASS/CHECK summary for any recording (adult RRST and RRST-Kids; `rrst_markers.py`
-  parses the kids markers).
-- `rrst_figures.py <file> [--out <folder>]`: the RRST figures (adult, kids or bench), run by the app after Stop.
+- `check_xdf.py <file>`: the PASS/CHECK summary for any recording.
+- `rrst_figures.py <file> [--out <folder>]`: the RRST figures (task or bench), run by the app after Stop.
 - Tests: `.venv\Scripts\python.exe -m pytest` (in `tests\`).
 - `epoch.py <file> --stream Flow --events "interval\d_onset_" --pre 1 --post 3 --groups load null`:
   per-trial epochs + averages (RRST markers: see the rrst-toolkit README, "Event markers (LSL)").
