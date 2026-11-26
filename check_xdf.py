@@ -10,7 +10,6 @@ import numpy as np
 import pyxdf
 
 from flow_quality import check_flow
-from rrst_markers import is_kids, kids_summary
 from quality import BAD, OK, check_common, check_ecg, check_resp, to_units
 
 SEGMENT_S = 10
@@ -66,12 +65,10 @@ def rrst_trigger_check(values):
 
 
 def rrst_check(values, session_end):
-    """[(text, ok)] for the RRST stream: the kids task (RRST-Kids) or the adult task."""
+    """[(text, ok)] for the RRST stream."""
     if not values:
         return [("RRST: no task markers recorded - the task was not running while recording, "
                  "or was still waiting at its start prompt", False)]
-    if is_kids(values):
-        return kids_summary(values, session_end)
     return [rrst_trigger_check(values)]
 
 
@@ -159,8 +156,7 @@ def assess(path, expect=("PLUX",)):
                 session.setdefault(v, t)
         else:
             onsets = sum("_onset" in v for v in values)
-            what = "slurps" if name == "RRST" and is_kids(values) else "onsets"
-            lines.append((f"{name} triggers: {len(values)}" + (f" ({onsets} {what})" if onsets else ""),
+            lines.append((f"{name} triggers: {len(values)}" + (f" ({onsets} onsets)" if onsets else ""),
                           len(values) > 0))
             if name == "RRST":
                 rrst = (len(lines), values)
