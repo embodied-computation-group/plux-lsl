@@ -47,6 +47,21 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    about 9 triggers, 2 of them onsets (one per breath). The pilot's 100 trials give about 900 triggers
    and 200 onsets, plus a few more for repeated trials. A shorter or aborted run gives fewer.
 
+## RA checklist: effort task (dynamometer)
+
+1. **Hub on.** Press the button on the biosignalsplux hub; its light blinks.
+2. Sensors on the participant (belt, ECG) as above: belt in port 1, ECG in port 2. No flow sensor.
+3. Open **Physio Recorder**, fill in Participant/Session, pick **Effort task (dynamometer)**.
+4. Click **1 Check signals**. Wait about 15 s: every channel title should turn **green**.
+5. **Start the effort task** (PsychoPy). **Recording starts by itself** as soon as the task is running
+   (the app beeps and says *Recording started AUTOMATICALLY*); the task waits until the recorder receives
+   its triggers. Run the task as normal. The state line counts the `EffortReward markers` as they come in.
+   - If it doesn't start (red banner): fix it, or click **2 Start recording**.
+6. When the task has finished, click **Stop recording** in Physio Recorder, then confirm.
+7. Check the **Last recording** panel: PASS / CHECK. `EffortReward triggers: N` should be well above 0;
+   `0`, or no `EffortReward` line at all, means the task's triggers were not recorded: note it and tell
+   the researcher.
+
 ## Devices on this PC
 
 The **Devices** tick boxes say which devices this PC has: **PLUX hub** and **Flow sensor**. They are
@@ -88,6 +103,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Stop, and the new task run is picked up (recording restarts by itself). |
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
+| `EffortReward triggers: 0` (summary) | The effort task was not running while recording, or was still at its first screen. |
 | `Could not connect to the hub 00:07:80:...` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Is it **this PC's hub** (MAC on its label = the one shown)? If not, *Change*. Then *Check signals* again. |
 | `No PLUX hub found` | The hub is not paired with this PC: switch it on, pair it in Windows Bluetooth settings (see *Devices on this PC*), then *Check signals* again. Or *Change* and type the MAC from its label. |
 | `sensors have no ID chip, assuming ...` (hub line) | Normal for some sensors. Belt must be in port 1, ECG in port 2; a channel that stays `FLAT` is probably in the wrong port. |
@@ -125,7 +141,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
   with no sensor detected at all, the ports in the map are recorded. Assumed kinds are noted in the PLUX
   stream's metadata (`kinds_from_port_map`).
 - Streams: `PLUX` (raw ADC counts, int32; column 0 `nSeq`), `Flow` (slm, degC; column 0 `nSeq`),
-  `SessionMarkers` (`<task>_start` / `<task>_end` / `<task>_end_early`), task markers (e.g. `RRST`).
+  `SessionMarkers` (`<task>_start` / `<task>_end` / `<task>_end_early`), task markers (e.g. `RRST`, `EffortReward`).
 - Software: Python 3.13 venv in `.venv` (PLUX's API has no 3.11 build), LabRecorder 1.18 in `LabRecorder\`,
   PLUX API binaries in `vendor\plux\`.
 
