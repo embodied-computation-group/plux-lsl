@@ -32,3 +32,25 @@ class TaskRuns:
 
     def should_auto_start(self, state, devices_ready):
         return state == "checking" and devices_ready and self.is_new()
+
+
+FORM_SETTLE_S = 3  # an auto-start waits until participant/session/recording are unchanged this long
+
+
+class FormSettle:
+    """An auto-start uses the form only once its values have stayed the same for settle_s, so a
+    half-typed participant ID ("0" of "01", typed after a failed auto-start) is never recorded.
+    The first values seen count as settled: the form was filled in before Check signals."""
+
+    def __init__(self, settle_s=FORM_SETTLE_S):
+        self.settle_s = settle_s
+        self.values = None
+        self.since = None
+
+    def update(self, values, now):
+        """The form's values now. Returns True if they have not changed for settle_s."""
+        if self.since is None:
+            self.values, self.since = values, now - self.settle_s
+        elif values != self.values:
+            self.values, self.since = values, now
+        return now - self.since >= self.settle_s

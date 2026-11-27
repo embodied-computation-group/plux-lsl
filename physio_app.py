@@ -34,7 +34,7 @@ from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from auto_stop import END_GRACE_S, AutoStop, is_end_marker
 from recorder import (DATA_DIR, LOG_DIR, ROOT, already_recorded_text, app_log_path, labrecorder_log_path,
                       output_path, previous_recording, start_recorder, stop_recorder)
-from task_runs import TaskRuns
+from task_runs import FormSettle, TaskRuns
 
 # shown name -> file label; minutes (None = task: no fixation screen, runs until the task ends);
 # the task's LSL marker stream that must be online before recording starts; whether the
@@ -260,7 +260,12 @@ class App:
         self.session_on = False  # Check signals done and not disconnected (with or without the hub)
         self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last", ...}: state line, auto-stop
         self.auto_stop = None   # AutoStop while a task with an end marker is recorded
-        self.banner_note = None  # (text, colour) kept on top of the banner until the next recording
+        # Banner lines kept on top of the routine banner, which _tick rewrites every 200 ms:
+        self.alert = None        # urgent (red) while its cause lasts: a task started but could not auto-start
+        self.banner_note = None  # (text, colour): "Recording stopped AUTOMATICALLY", "REPEAT"; until the
+        #                          next recording, Check signals or form change
+        self.form_settle = FormSettle()  # an auto-start waits until the form is unchanged for a moment
+        self.auto_blocked = None  # uid of the run whose auto-start is held back (logged and beeped once)
         self.marker_stop = None  # threading.Event that stops the task-marker counter
         self.error_text, self.error_until = "", 0.0  # internal error note kept on the banner
         self.last_error, self.last_error_t = None, 0.0
@@ -352,11 +357,21 @@ class App:
         self.axes = []
         if not args.minutes:
             self.on_preset(None)
+        for var in (self.sub, self.ses, self.recording):
+            var.trace_add("write", self.on_form_change)
         root.after(200, self.tick)
 
     # ---------- form ----------
     def preset(self):
         return PRESETS.get(self.recording.get().strip())
+
+    def on_form_change(self, *_):
+        """Participant, session or recording edited (the entries are disabled while recording)."""
+        if self.state in ("starting", "recording", "saving"):
+            return
+        if self.banner_note is not None:  # it was about the last recording
+            self.banner_note = None
+            self.set_banner(self.banner.cget("text").split("\n")[-1], self.banner.cget("fg"))
 
     def on_preset(self, _):
         preset = self.preset()
@@ -460,6 +475,7 @@ class App:
     def check_signals(self):
         if self.bridge is not None or self.state != "idle":
             return
+        self.banner_note = None
         if not self.use_plux.get():
             preset = self.preset()
             if preset is None or preset["minutes"] is not None:
@@ -677,7 +693,7 @@ class App:
         self.btn_disconnect.config(state="disabled")
         self.hub_text = "Hub: not connected"
         self.hub_status.config(text=self.hub_text, foreground="black")
-        self.banner_note = None
+        self.banner_note = self.alert = None
         self.set_banner("Disconnected.", "black")
         self.fig.clear()
         self.canvas.draw_idle()
@@ -834,13 +850,31 @@ class App:
             if self.runs.seen(None):
                 self.update_hub_text()
         if not name:
+            self.alert = None
             return
         if not self.task_resolving and time.monotonic() >= self.next_task_resolve:
             self.task_resolving = True
             threading.Thread(target=self.resolve_task, args=(name,), daemon=True).start()
+        sub, ses, task, _minutes, problems = self.form_values()
+        settled = self.form_settle.update((sub, ses, task), time.monotonic())
+        if not self.runs.is_new():
+            self.alert = None  # recorded, or the task is gone
         flow_ready = not self.flow_expected() or (self.flow is not None and self.flow["status"] == "ok")
         if not self.runs.should_auto_start(self.state, flow_ready):
             return  # each run once; wait for the flow sensor so it is in the recording (banner explains)
+        # A run that cannot start stays new (not marked recorded): it starts once the cause is fixed.
+        held = ("fill in the form (" + "; ".join(problems) + ")" if problems
+                else "no data from the hub" if self.monitor is not None and self.monitor.stalled else None)
+        if held:
+            if self.auto_blocked != self.runs.current:
+                self.auto_blocked = self.runs.current
+                log.error("%s started but cannot auto-start: %s", name, held)
+                self.root.bell()
+            self.alert = f"{name} started - NOT RECORDING: {held}. Recording then starts by itself."
+            return
+        if not settled:
+            return  # just typed: wait until participant/session stay the same for FORM_SETTLE_S
+        self.alert = None
         log.warning("%s stream appeared while not recording: starting automatically", name)
         self.root.bell()
         self.start_recording(auto=f"{name} started")
@@ -893,11 +927,13 @@ class App:
         self.root.after(0, lambda: self.runs.mark_recorded(*uids))
 
     def set_banner(self, text, colour):
-        if self.banner_note is not None:  # e.g. "Recording stopped AUTOMATICALLY", kept on top
-            note, note_colour = self.banner_note
-            text = f"{note}\n{text}"
-            if note_colour == WARN and colour != BAD:
-                colour = WARN
+        """The routine banner, below any sticky lines (self.alert, self.banner_note); the colour is
+        the most urgent of them."""
+        for note, note_colour in [self.banner_note or (None, None), (self.alert, BAD)]:
+            if note:
+                text = f"{note}\n{text}"
+                if note_colour == BAD or (note_colour == WARN and colour != BAD):
+                    colour = note_colour
         if time.monotonic() < self.error_until:  # an internal error stays on top for a while
             text, colour = f"{self.error_text}\n{text}", BAD
         self.banner.config(text=text, fg=colour)
@@ -936,10 +972,8 @@ class App:
             return
         sub, ses, task, minutes, problems = self.form_values()
         if problems:
-            if auto:  # can't record without a valid name; no dialog over the task
+            if auto:  # watch_task holds an auto-start back for this; no dialog over the task
                 log.error("%s but cannot auto-start: %s", auto, problems)
-                self.set_banner(f"{auto} - NOT RECORDING: fill in the form and click Start recording.", BAD)
-                self.runs.mark_recorded(self.runs.current)
                 return
             messagebox.showwarning("Check the form", "\n".join(problems))
             return
@@ -992,6 +1026,7 @@ class App:
                          "end_label": None, "end_t": None}
         self.banner_note = ((f"REPEAT: {repeat}. Recording it again as a new file ({self.path.name}).", WARN)
                             if repeat and auto else None)
+        self.alert = None
         self.clear_summary(note=f"Recording {self.path.name} ...")
         self.state = "starting"
         for b in (self.btn_record, self.btn_disconnect, self.btn_check):

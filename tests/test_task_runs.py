@@ -1,4 +1,19 @@
-from task_runs import TaskRuns
+from task_runs import FormSettle, TaskRuns
+
+
+def test_first_form_values_count_as_settled():
+    form = FormSettle(settle_s=3)
+    assert form.update(("01", "1", "hrd"), now=100)
+
+
+def test_changed_form_waits_until_settled():
+    # after a failed auto-start the RA types "01": "0" alone is a valid ID and must not be recorded
+    form = FormSettle(settle_s=3)
+    form.update(("", "1", "hrd"), now=100)
+    assert not form.update(("0", "1", "hrd"), now=101)
+    assert not form.update(("01", "1", "hrd"), now=101.5)
+    assert not form.update(("01", "1", "hrd"), now=104.4)
+    assert form.update(("01", "1", "hrd"), now=104.5)
 
 
 def test_a_run_is_auto_started_once():
