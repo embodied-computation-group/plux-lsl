@@ -46,6 +46,7 @@ PRESETS = {
 }
 LEAD_IN_S = 3        # recorder warm-up before the participant screen appears
 LOST_S = 10          # no data for this long during a window = connection lost
+EXTRA_STREAMS = {"hrd": ("Nonin",)}  # task -> other streams recorded when online (HRD's Nonin PPG)
 FIGURES = {"rrst": "rrst_figures.py"}  # task -> script run after Stop: <xdf> -> <stem>_figures/
 TASK_RESOLVE_S = 3  # how often to look for the task's trigger stream while checking
 INSTRUCTIONS = ("Please sit comfortably and keep as still as you can.\n\n"
@@ -938,7 +939,8 @@ class App:
 
         def launch():
             proc, names = start_recorder(self.path, console=False,
-                                         optional=("Flow",) if self.expect_flow else (),
+                                         optional=(("Flow",) if self.expect_flow else ())
+                                         + EXTRA_STREAMS.get(task, ()),
                                          required=("PLUX",) if self.expect_plux else ())
             t0 = time.monotonic()
             if needed:
