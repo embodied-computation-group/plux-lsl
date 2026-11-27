@@ -1,0 +1,74 @@
+{
+  "_note": "Step order rest -> HRD -> RRST -> effort is a placeholder until Micah confirms. Replace every FILL IN with the real shortcut path on the reference PC; check with: .venv\\Scripts\\python.exe session_runner.py --check maastricht",
+  "site": "Maastricht",
+  "order_status": "Step order PROVISIONAL - confirm with Micah",
+  "log_dir": "logs/session_runner",
+  "devices": ["physio_recorder", "rrst_teensy", "sensorbridge"],
+  "steps": [
+    {
+      "id": "rest",
+      "title": "Resting physiology (15 min)",
+      "instructions": "Everything for this step happens in the Physio Recorder. Fill in Participant and Session, pick the rest recording below, click 1 Check signals and wait until every channel title is green. Then click 2 Start recording in the Physio Recorder AND press Start here. Press Done when the Physio Recorder says Finished and the Last recording panel shows PASS.",
+      "prompts": [
+        "Hub off the charger and switched on",
+        "Belt (port 1) and ECG electrodes (port 2) on the participant",
+        "Every channel title is green in the Physio Recorder"
+      ],
+      "launch": null,
+      "type_into_task": [
+        ["Physio Recorder > Participant", "{participant}"],
+        ["Physio Recorder > Session", "{session}"],
+        ["Physio Recorder > Recording", "Rest - baseline"]
+      ]
+    },
+    {
+      "id": "hrd",
+      "title": "HRD (heart rate discrimination)",
+      "instructions": "In the Physio Recorder pick HRD, click 1 Check signals and wait until every channel title is green. Then press Start here: HRD opens. Fill in its dialog with the values below. Recording starts by itself. Press Done when HRD has finished and the Physio Recorder's Last recording panel shows PASS.",
+      "prompts": [
+        "Physio Recorder: HRD picked, every channel title green"
+      ],
+      "_todo": "launch: the HRD desktop shortcut on this laptop",
+      "launch": {"open": "FILL IN: path of the HRD desktop shortcut, e.g. C:\\Users\\Public\\Desktop\\HRD.lnk"},
+      "type_into_task": [
+        ["Physio Recorder > Recording", "HRD"],
+        ["HRD > Participant", "{participant}"],
+        ["HRD > Session", "{session}"]
+      ]
+    },
+    {
+      "id": "rrst",
+      "title": "RRST (breathing resistance)",
+      "instructions": "In the Physio Recorder pick RRST, click 1 Check signals and wait for green; ask for one or two test breaths through the mouthpiece and check that the Flow trace shows them. Then press Start here: RRST opens. Type the values below when it asks. Recording starts by itself and stops a few seconds after RRST finishes. Press Done when the Last recording panel shows PASS.",
+      "prompts": [
+        "RRST device and SensorBridge plugged in",
+        "Tube in, wedge parked",
+        "Flow sensor arrow points toward the participant",
+        "Physio Recorder: RRST picked, signals green, test breaths seen in Flow"
+      ],
+      "_todo": "launch: the RRST desktop shortcut on this laptop (the one that runs runRRST directly)",
+      "launch": {"open": "FILL IN: path of the RRST desktop shortcut, e.g. C:\\Users\\Public\\Desktop\\RRST.lnk"},
+      "type_into_task": [
+        ["Physio Recorder > Recording", "RRST"],
+        ["RRST > Participant", "{participant}"],
+        ["RRST > Session", "{session}"]
+      ]
+    },
+    {
+      "id": "effort",
+      "title": "Effort task (dynamometer)",
+      "instructions": "In the Physio Recorder pick Effort task (dynamometer), click 1 Check signals and wait until every channel title is green. Then press Start here: the effort task opens. Type the values below when it asks. Recording starts by itself. Press Done when the task has finished and the Last recording panel shows PASS.",
+      "prompts": [
+        "Dynamometer connected",
+        "Physio Recorder: Effort task picked, every channel title green"
+      ],
+      "_todo": "launch: the effort task desktop shortcut on this laptop",
+      "launch": {"open": "FILL IN: path of the effort task desktop shortcut, e.g. C:\\Users\\Public\\Desktop\\Effort task.lnk"},
+      "type_into_task": [
+        ["Physio Recorder > Recording", "Effort task (dynamometer)"],
+        ["Effort task > Participant", "{participant}"],
+        ["Effort task > Session", "{session}"]
+      ]
+    }
+  ]
+}
