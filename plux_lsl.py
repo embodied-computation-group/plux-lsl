@@ -13,6 +13,7 @@ up as gaps. Unit conversion happens offline using the per-channel metadata.
 
 import argparse
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -21,12 +22,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor" / "plux"))
 
 import plux  # noqa: E402
-from devices import find_hubs  # noqa: E402
+from devices import candidate_hubs, paired_hubs  # noqa: E402
 import lsl_quiet  # noqa: E402,F401
 from pylsl import StreamInfo, StreamOutlet, cf_int32  # noqa: E402
 
 DEFAULT_MAC = "00:07:80:4B:3F:25"
 DIGITAL_PORT = 9
+CONNECT_ATTEMPTS, CONNECT_PAUSE_S = 3, 5  # a just-paired hub may not be found at the first try
+# Hubs paired in Windows (findDevices() can miss them): one 'InstanceId|Present|FriendlyName' line each
+PAIRED_CMD = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+              "Get-PnpDevice -Class Bluetooth -FriendlyName 'biosignalsplux*' -ErrorAction SilentlyContinue | "
+              "ForEach-Object { $_.InstanceId + '|' + $_.Present + '|' + $_.FriendlyName }"]
 
 SENSOR_CLASS = {
     0: "UNKNOWN", 1: "EMG", 2: "ECG", 3: "LIGHT", 4: "EDA", 5: "BVP",
@@ -160,10 +166,19 @@ def connect(args):
     """Connect to the hub and report it. Returns (hub, sources, channels, properties)."""
     forced = [int(p) for p in args.ports.split(",")] if args.ports else None
 
-    print(f"Connecting to biosignalsplux {args.mac} ...", flush=True)
-    hub = Hub("BTH" + args.mac)
+    for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        print(f"Connecting to biosignalsplux {args.mac} ...", flush=True)
+        try:
+            hub = Hub("BTH" + args.mac)
+            break
+        except RuntimeError as exc:  # e.g. "The device could not be found." right after pairing
+            print(f"  attempt {attempt} of {CONNECT_ATTEMPTS} failed: {exc}", flush=True)
+            if attempt == CONNECT_ATTEMPTS:
+                raise
+            time.sleep(CONNECT_PAUSE_S)
     try:
-        print(f"Battery: {int(hub.getBattery())}%")
+        battery = int(hub.getBattery())
+        print(f"Battery: {battery}%" if battery >= 0 else "Battery: unknown")  # some hubs report -1
         try:
             properties = hub.getProperties()
         except Exception:
@@ -187,11 +202,25 @@ def connect(args):
 
 
 def find():
-    """Print one 'MAC  description' line per biosignalsplux hub Windows knows (used by physio_app.py)."""
+    """Print one 'MAC  description' line per biosignalsplux hub Windows knows (used by physio_app.py):
+    the hubs paired in Windows (devices.candidate_hubs says which)."""
     print("Looking for biosignalsplux hubs (Bluetooth) ...", file=sys.stderr, flush=True)
-    found = plux.BaseDev.findDevices("BTH")
-    print(f"PLUX devices found: {list(found)!r}", file=sys.stderr, flush=True)
-    hubs = find_hubs(found)
+    try:
+        out = subprocess.run(PAIRED_CMD, capture_output=True, text=True, timeout=30,
+                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        out = ""
+        print(f"Could not list paired devices: {exc}", file=sys.stderr)
+    print(f"Paired in Windows: {out.strip()!r}", file=sys.stderr, flush=True)
+    present, absent = paired_hubs(out)
+    found = ()
+    if not present:  # fallback only: slow, and may list hubs that are not this PC's
+        try:
+            found = plux.BaseDev.findDevices("BTH")
+        except Exception as exc:
+            print(f"findDevices failed: {exc}", file=sys.stderr)
+        print(f"PLUX findDevices: {list(found)!r}", file=sys.stderr, flush=True)
+    hubs = candidate_hubs(present, absent, found)
     for mac, desc in hubs:
         print(f"{mac}  {desc}", flush=True)
     if not hubs:

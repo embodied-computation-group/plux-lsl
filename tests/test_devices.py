@@ -1,6 +1,7 @@
 import json
 
-from devices import auto_hub, find_hubs, load_devices, normalize_mac, parse_hub_lines, save_devices
+from devices import (auto_hub, candidate_hubs, find_hubs, load_devices, normalize_mac, paired_hubs,
+                     parse_hub_lines, save_devices)
 
 HUB = "00:07:80:4B:3F:25"
 
@@ -62,3 +63,30 @@ def test_auto_hub_only_when_exactly_one():
     assert auto_hub([(HUB, "biosignalsplux")]) == HUB
     assert auto_hub([]) is None
     assert auto_hub([(HUB, "biosignalsplux"), ("00:07:80:AA:BB:CC", "biosignalsplux")]) is None
+
+
+PNP_FIELD = r"BTHENUM\DEV_0007804D3382\8&2A1B&0&BLUETOOTHDEVICE_0007804D3382|True|biosignalsplux"
+PNP_OLD = r"BTHENUM\DEV_0007804B3F25\A&C90331B&0&BLUETOOTHDEVICE_0007804B3F25|False|biosignalsplux"
+
+
+def test_paired_hubs_from_windows_device_list():
+    present, absent = paired_hubs("\n".join([PNP_FIELD, PNP_OLD, r"BTHENUM\DEV_28EA0BDAC484\x|True|Xbox",
+                                             "garbage", ""]))
+    assert present == [("00:07:80:4D:33:82", "biosignalsplux")]
+    assert absent == [(HUB, "biosignalsplux")]
+    assert paired_hubs("") == ([], [])
+
+
+def test_candidates_prefer_present_pairings_over_find_devices():
+    # 2026-11-27, CB-STIM-02: findDevices() returned () for a hub that was on and paired
+    present, absent = paired_hubs(PNP_FIELD + "\n" + PNP_OLD)
+    others = (("BTH00:07:80:AA:BB:CC", "biosignalsplux"),)
+    assert candidate_hubs(present, absent, others) == [("00:07:80:4D:33:82", "biosignalsplux")]
+    assert auto_hub(candidate_hubs(present, absent, ())) == "00:07:80:4D:33:82"
+
+
+def test_candidates_without_a_present_pairing_fall_back_to_old_pairings_and_find_devices():
+    _, absent = paired_hubs(PNP_OLD)
+    found = (("BTH00:07:80:4D:33:82", "biosignalsplux"), ("BTH00:07:80:4B:3F:25", "biosignalsplux"))
+    assert candidate_hubs([], absent, found) == [(HUB, "biosignalsplux"), ("00:07:80:4D:33:82", "biosignalsplux")]
+    assert candidate_hubs([], [], ()) == []
