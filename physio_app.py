@@ -41,6 +41,7 @@ PRESETS = {
     "Rest - baseline": {"task": "restbaseline", "minutes": 15, "markers": None, "flow": False},
     "Rest - peak": {"task": "restpeak", "minutes": 15, "markers": None, "flow": False},
     "RRST": {"task": "rrst", "minutes": None, "markers": "RRST", "flow": True},
+    "Effort task (dynamometer)": {"task": "effortreward", "minutes": None, "markers": "EffortReward", "flow": False},
 }
 LEAD_IN_S = 3        # recorder warm-up before the participant screen appears
 LOST_S = 10          # no data for this long during a window = connection lost
@@ -275,7 +276,7 @@ class App:
             ttk.Label(form, text=text).grid(row=0, column=2 * col, sticky="w", padx=(0, 4))
             ttk.Entry(form, textvariable=var, width=width, font=FONT).grid(row=0, column=2 * col + 1, padx=(0, 16))
         ttk.Label(form, text="Recording").grid(row=0, column=4, sticky="w", padx=(0, 4))
-        combo = ttk.Combobox(form, textvariable=self.recording, values=list(PRESETS), width=18, font=FONT)
+        combo = ttk.Combobox(form, textvariable=self.recording, values=list(PRESETS), width=24, font=FONT)
         combo.grid(row=0, column=5, padx=(0, 16))
         combo.bind("<<ComboboxSelected>>", self.on_preset)
         ttk.Label(form, text="Minutes").grid(row=0, column=6, sticky="w", padx=(0, 4))

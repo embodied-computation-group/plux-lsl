@@ -72,6 +72,15 @@ def rrst_check(values, session_end):
     return [rrst_trigger_check(values)]
 
 
+def marker_lines(name, values):
+    """[(text, ok)] for one task marker stream: its trigger count; RRST also gets its own check."""
+    onsets = sum("_onset" in v for v in values)
+    lines = [(f"{name} triggers: {len(values)}" + (f" ({onsets} onsets)" if onsets else ""), len(values) > 0)]
+    if name == "RRST":
+        lines += rrst_check(values, None)
+    return lines
+
+
 def plux_quality(plux, start, end):
     """(passed, [(text, ok)]) for the PLUX stream inside the window."""
     info = plux["info"]
@@ -143,7 +152,6 @@ def assess(path, expect=("PLUX",)):
     streams, _ = pyxdf.load_xdf(str(path))
     lines = []
     by_name, session = {}, {}
-    rrst = None  # (position in lines, RRST marker values)
     for s in streams:
         info = s["info"]
         name = info["name"][0]
@@ -155,15 +163,9 @@ def assess(path, expect=("PLUX",)):
             for t, v in zip(s["time_stamps"], values):
                 session.setdefault(v, t)
         else:
-            onsets = sum("_onset" in v for v in values)
-            lines.append((f"{name} triggers: {len(values)}" + (f" ({onsets} onsets)" if onsets else ""),
-                          len(values) > 0))
-            if name == "RRST":
-                rrst = (len(lines), values)
+            lines += marker_lines(name, values)
     start = next((t for m, t in session.items() if m.endswith("_start")), None)
     end_label = next((m for m in session if m.endswith(("_end", "_end_early"))), None)
-    if rrst is not None:
-        lines[rrst[0]:rrst[0]] = rrst_check(rrst[1], end_label)
     ok = all(good is not False for _t, good in lines)
     end = session[end_label] if end_label else None
     if start is not None and end is not None:
