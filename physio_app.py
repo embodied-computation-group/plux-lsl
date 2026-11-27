@@ -32,8 +32,8 @@ from check_xdf import assess
 from devices import auto_hub, format_port_kinds, load_devices, normalize_mac, parse_hub_lines, save_devices
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from auto_stop import END_GRACE_S, AutoStop, is_end_marker
-from recorder import (DATA_DIR, LOG_DIR, ROOT, already_recorded_text, output_path, previous_recording,
-                      start_recorder, stop_recorder)
+from recorder import (DATA_DIR, LOG_DIR, ROOT, already_recorded_text, app_log_path, labrecorder_log_path,
+                      output_path, previous_recording, start_recorder, stop_recorder)
 from task_runs import TaskRuns
 
 # shown name -> file label; minutes (None = task: no fixation screen, runs until the task ends);
@@ -63,7 +63,7 @@ FONT = ("Segoe UI", 11)
 BIG = ("Segoe UI", 14, "bold")
 
 log = logging.getLogger("physio_app")
-LOG_FILE = LOG_DIR / f"app_{datetime.date.today():%Y%m%d}.log"
+LOG_FILE = app_log_path()  # one per app start: logs/app_YYYYMMDD-HHMMSS.log
 
 
 def find_hubs_now():
@@ -985,6 +985,7 @@ class App:
         self.expect_flow = self.flow_expected()
         self.expect_plux = self.monitor is not None
         self.path = output_path(DATA_DIR, sub, ses, task)
+        self.rec_log = rec_log = labrecorder_log_path(self.path)
         self.rec_info = {"sub": sub, "ses": ses, "since": None, "markers": needed if minutes is None else None,
                          "count": 0, "last": None, "uid": None,
                          "end": preset.get("end") if preset and minutes is None else None,
@@ -1004,7 +1005,8 @@ class App:
             proc, names = start_recorder(self.path, console=False,
                                          optional=(("Flow",) if self.expect_flow else ())
                                          + EXTRA_STREAMS.get(task, ()),
-                                         required=("PLUX",) if self.expect_plux else ())
+                                         required=("PLUX",) if self.expect_plux else (),
+                                         log_path=rec_log)
             t0 = time.monotonic()
             if needed:
                 self.mark_recorded(needed)
@@ -1019,7 +1021,7 @@ class App:
             self.btn_record.config(state="normal")
             self.btn_disconnect.config(state="normal")
             messagebox.showerror("Recorder failed", f"The recorder did not start.\n\nDetails: "
-                                 f"{self.path.with_suffix('.labrecorder.log')}")
+                                 f"{self.rec_log}")
             return
         log.info("recorder streams: %s", names)
         if self.minutes_value is None:  # task: the task owns the screen
@@ -1064,12 +1066,12 @@ class App:
             log.info("aborted before start; removing %s", self.path)
             self.screen.destroy()
             self.screen = None
-            proc, path = self.recorder, self.path
+            proc, path, rec_log = self.recorder, self.path, self.rec_log
             self.state = "saving"
 
             def cleanup():
                 stop_recorder(proc)
-                for p in (path, path.with_suffix(".labrecorder.log")):
+                for p in (path, rec_log):
                     p.unlink(missing_ok=True)
                 self.root.after(0, self.back_to_checking)
             threading.Thread(target=cleanup, daemon=True).start()

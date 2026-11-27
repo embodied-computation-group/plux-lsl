@@ -30,7 +30,7 @@ def test_other_tasks_sessions_and_files_do_not_count(tmp_path):
     when = datetime.datetime(2026, 11, 27, 10, 0)
     touch(folder / "sub-01_ses-1_task-hrdx_physio.xdf", when)          # another task label
     touch(folder / "sub-01_ses-1_task-hrd_physio_figures" / "x.png", when)
-    touch(folder / "sub-01_ses-1_task-hrd_20261127-100000.labrecorder.log", when)
+    touch(folder / "sub-01_ses-1_task-hrd_physio_20261127-100000.labrecorder.log", when)
     touch(tmp_path / "sub-01" / "ses-2" / "sub-01_ses-2_task-hrd_physio.xdf", when)
     assert previous_recording(tmp_path, "01", "1", "hrd") is None
 

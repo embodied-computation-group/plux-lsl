@@ -101,7 +101,7 @@ def main():
                 return True
         elif phase == "lead_in":
             if st["recorder"].poll() is not None:
-                print("LabRecorderCLI exited early; see the .labrecorder.log next to the data file")
+                print("LabRecorderCLI exited early; see the newest *.labrecorder.log next to the data file")
                 return True
             if nseq >= st["start"]:
                 markers.push_sample([f"{args.task}_start"], local_clock())

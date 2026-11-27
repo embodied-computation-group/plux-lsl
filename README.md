@@ -134,7 +134,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | Message | What to do |
 |---|---|
 | The Physio Recorder window seems to have vanished | It does not close or hide itself during a recording. Look on the taskbar / the other screen (it may be behind the task). The state line says whether it is still recording. |
-| `Internal error: see logs\app_<date>.log` (banner) | Something unexpected went wrong inside the app; the details are in that log. Recording usually goes on: check the state line, then tell the researcher and send the log. |
+| `Internal error: see logs\app_<date>-<time>.log` (banner) | Something unexpected went wrong inside the app; the details are in that log. Recording usually goes on: check the state line, then tell the researcher and send the log. |
 | `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Stop, and the new task run is picked up (recording restarts by itself). |
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
@@ -161,6 +161,9 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 
 - `record.py`: command-line recorder (`--sub 01 --ses 1 --minutes 5`, or `--task rrst` to record until Ctrl+C).
 - `check_xdf.py <file>`: the PASS/CHECK summary for any recording.
+- Logs are never overwritten: the app writes `logs\app_YYYYMMDD-HHMMSS.log` per start (the hub and flow
+  streamers their own `logs\hub_...` / `logs\flow_...`), and LabRecorder writes
+  `<recording>_physio_YYYYMMDD-HHMMSS.labrecorder.log` next to each recording.
 - `rrst_figures.py <file> [--out <folder>]`: the RRST figures (task or bench), run by the app after Stop.
 - Tests: `.venv\Scripts\python.exe -m pytest` (in `tests\`).
 - `epoch.py <file> --stream Flow --events "interval\d_onset_" --pre 1 --post 3 --groups load null`:

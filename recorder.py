@@ -28,6 +28,22 @@ def output_path(out_dir, sub, ses, task):
     return path
 
 
+def log_stamp(now=None):
+    """YYYYMMDD-HHMMSS (now, or the given datetime): log names never repeat across starts."""
+    return (now or datetime.datetime.now()).strftime("%Y%m%d-%H%M%S")
+
+
+def app_log_path(now=None, log_dir=LOG_DIR):
+    """logs/app_YYYYMMDD-HHMMSS.log: one file per app start."""
+    return Path(log_dir) / f"app_{log_stamp(now)}.log"
+
+
+def labrecorder_log_path(xdf_path, now=None):
+    """<xdf stem>_YYYYMMDD-HHMMSS.labrecorder.log next to the recording."""
+    path = Path(xdf_path)
+    return path.with_name(f"{path.stem}_{log_stamp(now)}.labrecorder.log")
+
+
 def previous_recording(out_dir, sub, ses, task):
     """The newest recording of sub/ses/task already in out_dir (the plain file or a _run-N one),
     by modification time; None if there is none. Creates no folders."""
@@ -46,9 +62,10 @@ def already_recorded_text(sub, ses, task, path, today=None):
     return f"sub-{sub} ses-{ses} {task} was already recorded at {at} ({Path(path).name})"
 
 
-def start_recorder(path, console=True, optional=("Flow",), required=("PLUX",)):
+def start_recorder(path, console=True, optional=("Flow",), required=("PLUX",), log_path=None):
     """Launch LabRecorderCLI on the `required` streams, SessionMarkers, any task marker
-    streams online, and those `optional` streams (e.g. Flow) that are online.
+    streams online, and those `optional` streams (e.g. Flow) that are online. Its output goes
+    to log_path (default: labrecorder_log_path(path)).
 
     Returns (process, names of the streams being recorded).
     """
@@ -56,7 +73,7 @@ def start_recorder(path, console=True, optional=("Flow",), required=("PLUX",)):
     others = sorted({s.name() for s in online if s.type() == "Markers" and s.name() != "SessionMarkers"})
     extra = sorted({s.name() for s in online if s.name() in optional and s.name() not in required})
     names = [*required, *extra, "SessionMarkers", *others]
-    log = open(Path(path).with_suffix(".labrecorder.log"), "w")
+    log = open(log_path or labrecorder_log_path(path), "w")
     flags = subprocess.CREATE_NEW_PROCESS_GROUP  # keep Ctrl+C away from it
     if not console:
         flags |= subprocess.CREATE_NO_WINDOW
