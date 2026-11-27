@@ -554,7 +554,8 @@ class App:
         text = self.bridge_log.read_text(errors="replace")
         battery = re.search(r"Battery: (\d+)%", text)
         chans = ", ".join(label for label, _ in self.monitor.channels)
-        bat = f"battery {battery.group(1)}%" if battery else "battery unknown"
+        bat = (f"battery {battery.group(1)}%" if battery else
+               "battery unknown (on the charger? unplug it before sensors go on)")
         # sensors without an ID chip: plux_lsl.py says which sensor it assumes on which port
         no_chip = re.search(r"(?:No sensor ID chips found|Sensors without ID chip): assuming (.+)", text)
         note = f"  |  sensors have no ID chip, assuming {no_chip.group(1).strip()}" if no_chip else ""

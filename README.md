@@ -10,9 +10,13 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 
 ## RA checklist: resting recording (15 min, baseline or peak)
 
-1. **Hub on.** Press the button on the biosignalsplux hub; its light blinks. Battery shows in the app.
-2. **Sensors on the participant.** Respiration belt around the chest, snug but comfortable. ECG electrodes
-   on clean, dry skin, with the leads clipped on. Cables into the hub: **belt in port 1, ECG in port 2**.
+1. **Hub off the charger, then on.** Unplug the charger first: never put sensors on anyone, or record,
+   while the hub is on the charger. Press the button on the biosignalsplux hub; its light blinks.
+   Battery shows in the app (`battery unknown` usually means it is still on the charger).
+2. **Sensors on the participant.** Respiration belt around the lower chest, snug but comfortable.
+   ECG electrodes on clean, dry skin, leads clipped on (see *ECG electrode placement* below):
+   **red under the right collarbone, black on the lower left ribs, white on a bony spot** (left
+   collarbone or hip bone). Cables into the hub: **belt in port 1, ECG in port 2**.
 3. Open **Physio Recorder** (desktop shortcut).
 4. Fill in **Participant** and **Session**, and pick **Rest - baseline** or **Rest - peak**
    (15 min is filled in).
@@ -78,6 +82,20 @@ own). Its MAC is printed on the hub's label.
 - A new hub must first be paired in **Windows Settings > Bluetooth & devices > Add device** (hub switched
   on). Right after pairing the hub may not be found yet: wait a minute, then *Check signals* again.
 
+**ECG electrode placement** (lab ECG sensor, checked 2026-11-27 on a test recording: R and T waves
+upright, HR 84):
+
+| Lead | Where |
+|---|---|
+| **Red** | just under the **right** collarbone |
+| **Black** | **left** side, on the lower ribs |
+| **White** (reference) | a bony spot away from the heart: left collarbone or hip bone |
+
+In *Check signals*, the ECG trace must show tall, sharp spikes pointing **up**, each followed by a
+smaller rounded bump (also up). Spikes pointing **down** mean red and black are swapped: swap them
+and *Check signals* again. With this placement the R peaks are large (in the test, close to the top
+of the hub's range); if the ECG title says `CLIPPING`, move red and black a little closer together.
+
 **Sensor cables:** belt in **port 1**, ECG in **port 2** of the hub (the lab's standard wiring). Sensors
 with an ID chip are recognised on any port. Sensors **without** an ID chip are not: the app then assumes
 the standard wiring, and the hub line says *sensors have no ID chip, assuming breathing belt (RESP) on
@@ -104,6 +122,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
 | `EffortReward triggers: 0` (summary) | The effort task was not running while recording, or was still at its first screen. |
+| `battery unknown` (hub line) | The hub is probably on the charger. Unplug it before sensors go on anyone; the battery then shows. |
 | `Could not connect to the hub 00:07:80:...` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Is it **this PC's hub** (MAC on its label = the one shown)? If not, *Change*. Then *Check signals* again. |
 | `No PLUX hub found` | The hub is not paired with this PC: switch it on, pair it in Windows Bluetooth settings (see *Devices on this PC*), then *Check signals* again. Or *Change* and type the MAC from its label. |
 | `sensors have no ID chip, assuming ...` (hub line) | Normal for some sensors. Belt must be in port 1, ECG in port 2; a channel that stays `FLAT` is probably in the wrong port. |
