@@ -13,7 +13,6 @@ participant sees a fixation cross for the whole window; Esc twice stops early.
 import argparse
 import ctypes
 import datetime
-import json
 import logging
 import os
 import re
@@ -30,6 +29,7 @@ from matplotlib.figure import Figure
 from pylsl import StreamInfo, StreamInlet, StreamOutlet, cf_string, local_clock, resolve_byprop
 
 from check_xdf import assess
+from devices import auto_hub, load_devices, normalize_mac, parse_hub_lines, save_devices
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from recorder import DATA_DIR, LOG_DIR, ROOT, output_path, start_recorder, stop_recorder
 from task_runs import TaskRuns
@@ -46,7 +46,6 @@ LEAD_IN_S = 3        # recorder warm-up before the participant screen appears
 LOST_S = 10          # no data for this long during a window = connection lost
 FIGURES = {"rrst": "rrst_figures.py"}  # task -> script run after Stop: <xdf> -> <stem>_figures/
 TASK_RESOLVE_S = 3  # how often to look for the task's trigger stream while checking
-DEVICES_FILE = ROOT / "devices.json"  # which devices this PC has; set with the Devices tick boxes
 INSTRUCTIONS = ("Please sit comfortably and keep as still as you can.\n\n"
                 "Breathe normally and keep your eyes on the cross.\n\n"
                 "The researcher will tell you when it is finished.")
@@ -57,13 +56,20 @@ log = logging.getLogger("physio_app")
 LOG_FILE = LOG_DIR / f"app_{datetime.date.today():%Y%m%d}.log"
 
 
-def load_devices():
-    devices = {"plux": True, "flow": True}
+def find_hubs_now():
+    """Ask plux_lsl.py --find for the biosignalsplux hubs Windows knows (takes ~10 s). Returns
+    ([(MAC, description)], error text or None). A separate process keeps PLUX's API out of the app."""
     try:
-        devices.update(json.loads(DEVICES_FILE.read_text()))
-    except (OSError, ValueError):
-        pass
-    return devices
+        out = subprocess.run([str(ROOT / ".venv" / "Scripts" / "python.exe"), str(ROOT / "plux_lsl.py"), "--find"],
+                             capture_output=True, text=True, timeout=60, cwd=ROOT,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.error("hub search failed: %s", exc)
+        return [], f"the Bluetooth search failed: {exc}"
+    log.info("hub search: %s | %s", out.stdout.strip(), out.stderr.strip()[-600:])
+    if out.returncode != 0:
+        return [], "the Bluetooth search failed: " + (out.stderr.strip().splitlines() or ["?"])[-1]
+    return parse_hub_lines(out.stdout), None
 
 
 def label_to_task(text):
@@ -144,6 +150,84 @@ class ParticipantScreen(tk.Toplevel):
         self.after(3000, self.destroy)
 
 
+class HubDialog(tk.Toplevel):
+    """Pick this PC's PLUX hub: one found over Bluetooth, or a MAC typed in. hubs=None searches
+    first. on_done(MAC) runs on OK with a valid MAC; on_cancel() when closed without one."""
+
+    def __init__(self, master, current, on_done, on_cancel=None, hubs=None, note=""):
+        super().__init__(master, padx=12, pady=10)
+        self.title("PLUX hub")
+        self.transient(master)
+        self.resizable(False, False)
+        self.on_done, self.on_cancel, self.hubs = on_done, on_cancel, []
+        ttk.Label(self, text=note or "Which PLUX hub does this PC use?").pack(anchor="w")
+        self.status = ttk.Label(self, text="", foreground="#666")
+        self.status.pack(anchor="w", pady=(4, 0))
+        self.listbox = tk.Listbox(self, height=4, width=44, font=FONT, exportselection=False)
+        self.listbox.pack(fill="x", pady=4)
+        self.listbox.bind("<<ListboxSelect>>", self._picked)
+        ttk.Label(self, text="or type its MAC address (on the hub's label), e.g. 00:07:80:4B:3F:25").pack(anchor="w")
+        self.mac = tk.StringVar(value=current or "")
+        ttk.Entry(self, textvariable=self.mac, width=24, font=FONT).pack(anchor="w", pady=4)
+        row = ttk.Frame(self)
+        row.pack(fill="x", pady=(6, 0))
+        ttk.Button(row, text="OK", command=self._ok).pack(side="right")
+        ttk.Button(row, text="Cancel", command=self._cancel).pack(side="right", padx=8)
+        self.btn_search = ttk.Button(row, text="Search again", command=self._search)
+        self.btn_search.pack(side="left")
+        self.bind("<Return>", lambda e: self._ok())
+        self.bind("<Escape>", lambda e: self._cancel())
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.grab_set()
+        if hubs is None:
+            self._search()
+        else:
+            self._show(hubs, None)
+
+    def _search(self):
+        self.btn_search.config(state="disabled")
+        self.status.config(text="Looking for paired hubs ... (a few seconds)")
+
+        def search():
+            hubs, error = find_hubs_now()
+            try:
+                self.after(0, lambda: self._show(hubs, error))
+            except RuntimeError:  # dialog or app already closed
+                pass
+        threading.Thread(target=search, daemon=True).start()
+
+    def _show(self, hubs, error):
+        if not self.winfo_exists():
+            return
+        self.btn_search.config(state="normal")
+        self.hubs = hubs
+        self.listbox.delete(0, "end")
+        for mac, desc in hubs:
+            self.listbox.insert("end", f"{mac}   {desc}")
+        self.status.config(text=error or (f"Paired hubs found: {len(hubs)}. Click one, then OK." if hubs else
+                                          "No paired hub found: pair it in Windows Bluetooth settings "
+                                          "and Search again, or type its MAC."))
+
+    def _picked(self, _):
+        sel = self.listbox.curselection()
+        if sel:
+            self.mac.set(self.hubs[sel[0]][0])
+
+    def _ok(self):
+        mac = normalize_mac(self.mac.get())
+        if mac is None:
+            messagebox.showwarning("PLUX hub", "A MAC address is six pairs of 0-9 / A-F, "
+                                   "e.g. 00:07:80:4B:3F:25.", parent=self)
+            return
+        self.destroy()
+        self.on_done(mac)
+
+    def _cancel(self):
+        self.destroy()
+        if self.on_cancel is not None:
+            self.on_cancel()
+
+
 class App:
     def __init__(self, root, args):
         self.root = root
@@ -168,6 +252,7 @@ class App:
         self.marker_stop = None  # threading.Event that stops the task-marker counter
         self.error_text, self.error_until = "", 0.0  # internal error note kept on the banner
         self.last_error, self.last_error_t = None, 0.0
+        self.finding = None     # the hub search started by Check signals, else None
         self.markers = StreamOutlet(StreamInfo("SessionMarkers", "Markers", 1, 0, cf_string,
                                                "plux-lsl-session"))
 
@@ -209,6 +294,11 @@ class App:
                                             ("Flow sensor (RRST)", self.use_flow)]]
         for box in self.dev_boxes:
             box.pack(side="left", padx=(0, 16))
+        self.hub = devices["hub"]  # this PC's hub MAC; None = look for it at Check signals
+        self.hub_label = ttk.Label(dev_row, text="")
+        self.hub_label.pack(side="left", padx=(8, 4))
+        ttk.Button(dev_row, text="Change", command=self.change_hub).pack(side="left")
+        self.show_hub()
 
         buttons = ttk.Frame(root, padding=(10, 0))
         buttons.pack(fill="x")
@@ -283,9 +373,24 @@ class App:
             self.use_flow.set(saved["flow"])
             messagebox.showinfo("Devices", "Click Disconnect first, then change the devices.")
             return
-        devices = {"plux": self.use_plux.get(), "flow": self.use_flow.get()}
-        DEVICES_FILE.write_text(json.dumps(devices))
+        devices = save_devices({"plux": self.use_plux.get(), "flow": self.use_flow.get()})
         log.info("devices: %s", devices)
+
+    def show_hub(self):
+        self.hub_label.config(text=f"Hub: {self.hub}" if self.hub else "Hub: not set yet (found at Check signals)")
+
+    def set_hub(self, mac):
+        self.hub = mac
+        save_devices({"hub": mac})
+        log.info("hub set to %s", mac)
+        self.show_hub()
+
+    def change_hub(self):
+        """Pick another hub (found over Bluetooth, or typed in). Only while disconnected, like the tick boxes."""
+        if self.state != "idle":
+            messagebox.showinfo("PLUX hub", "Click Disconnect first, then change the hub.")
+            return
+        HubDialog(self.root, self.hub, self.set_hub)
 
     def flow_expected(self):
         preset = self.preset()
@@ -314,13 +419,13 @@ class App:
 
     # ---------- device connections ----------
     @staticmethod
-    def launch_streamer(script, prefix):
+    def launch_streamer(script, prefix, *args):
         """Start plux_lsl.py / flow_lsl.py hidden, logging to logs/. Returns (process, log path)."""
         LOG_DIR.mkdir(exist_ok=True)
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = LOG_DIR / f"{prefix}_{stamp}.log"
         proc = subprocess.Popen(
-            [str(ROOT / ".venv" / "Scripts" / "python.exe"), str(ROOT / script), "--stop-on-eof"],
+            [str(ROOT / ".venv" / "Scripts" / "python.exe"), str(ROOT / script), "--stop-on-eof", *args],
             stdin=subprocess.PIPE, stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW, cwd=ROOT, env=dict(os.environ, PYTHONUNBUFFERED="1"),
         )
@@ -359,16 +464,62 @@ class App:
             self.rebuild_axes()
             self.ensure_flow()
             return
-        self.bridge, self.bridge_log = self.launch_streamer("plux_lsl.py", "hub")
         self.state = "connecting"
         self.btn_check.config(state="disabled")
         self.btn_disconnect.config(state="normal")
-        self.set_banner("Connecting to the hub ... (switch it on if it is off)", WARN)
+        if self.hub is None:  # never fall back to a hub this PC may not have: find it
+            self.find_hub()
+        else:
+            self.connect_hub()
+
+    def find_hub(self):
+        """No hub set on this PC yet: use the only paired biosignalsplux; several: the RA picks."""
+        self.set_banner("Looking for the PLUX hub ... (a few seconds)", WARN)
+        token = self.finding = object()
+
+        def search():
+            hubs, error = find_hubs_now()
+            self.root.after(0, lambda: self.on_hubs_found(token, hubs, error))
+        threading.Thread(target=search, daemon=True).start()
+
+    def on_hubs_found(self, token, hubs, error):
+        if token is not self.finding or self.state != "connecting":
+            return  # disconnected meanwhile
+        self.finding = None
+        if auto_hub(hubs):
+            self.set_hub(auto_hub(hubs))
+            self.connect_hub()
+        elif hubs:
+            self.set_banner("Several PLUX hubs found: pick this PC's hub in the window that opened.", WARN)
+            HubDialog(self.root, None, self.on_hub_picked, hubs=hubs,
+                      on_cancel=lambda: self.back_to_idle("No hub chosen. Click Check signals again."),
+                      note="Several PLUX hubs found. Which one is this PC's hub? (MAC on the hub's label)")
+        else:
+            self.back_to_idle(f"No PLUX hub found ({error or 'none paired with this PC'}). Switch the hub on, "
+                              "pair it in Windows Bluetooth settings (or click Change next to Hub and type its "
+                              "MAC), then click Check signals again.")
+
+    def on_hub_picked(self, mac):
+        self.set_hub(mac)
+        if self.state == "connecting" and self.bridge is None:
+            self.connect_hub()
+
+    def back_to_idle(self, text):
+        if self.state != "connecting":
+            return
+        self.state = "idle"
+        self.btn_check.config(state="normal")
+        self.btn_disconnect.config(state="disabled")
+        self.set_banner(text, BAD)
+
+    def connect_hub(self):
+        self.bridge, self.bridge_log = self.launch_streamer("plux_lsl.py", "hub", "--mac", self.hub)
+        self.set_banner(f"Connecting to the hub {self.hub} ... (switch it on if it is off)", WARN)
         bridge = self.bridge
 
         def wait():
             info = None
-            t_end = time.monotonic() + 25
+            t_end = time.monotonic() + 60  # plux_lsl.py tries 3 times (a just-paired hub may need it)
             while info is None and bridge.poll() is None and time.monotonic() < t_end:
                 info = find_plux(timeout=1.0)
             self.root.after(0, lambda: self.on_stream(info))
@@ -381,16 +532,15 @@ class App:
             details = self.bridge_log.read_text(errors="replace")[-600:] if self.bridge_log else ""
             log.warning("hub connection failed: %s", details)
             self.stop_bridge()
-            self.state = "idle"
-            self.btn_check.config(state="normal")
-            self.btn_disconnect.config(state="disabled")
-            self.set_banner("Could not connect to the hub.", BAD)
+            self.back_to_idle(f"Could not connect to the hub {self.hub}.")
             messagebox.showerror("Hub not found", (
-                "Could not connect to the PLUX hub.\n\nCheck that:\n"
+                f"Could not connect to the PLUX hub {self.hub}.\n\nCheck that:\n"
                 "  - the hub is switched on (light blinking)\n"
                 "  - it is charged\n"
                 "  - it is within a few metres of the laptop\n"
-                "  - OpenSignals is closed (only one program can use the hub)\n\n"
+                "  - OpenSignals is closed (only one program can use the hub)\n"
+                "  - it is this PC's hub: the MAC on its label is the one above\n"
+                "    (if not, click Change next to Hub)\n\n"
                 f"Then click Check signals again.\n\nDetails: {self.bridge_log}"))
             return
         self.monitor = Monitor(info)
@@ -500,6 +650,7 @@ class App:
             return
         self.stop_bridge()
         self.stop_flow()
+        self.finding = None
         self.monitor = None
         self.state = "idle"
         self.session_on = False
