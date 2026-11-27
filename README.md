@@ -66,6 +66,23 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    `0`, or no `EffortReward` line at all, means the task's triggers were not recorded: note it and tell
    the researcher.
 
+## RA checklist: HRD (heart rate discrimination)
+
+The ECG and breathing belt are recorded during HRD whichever heart signal HRD uses (PLUX ECG or the
+Nonin backup), so the PLUX hub and sensors go on in both cases.
+
+1. **Hub off the charger, then on.** Sensors on the participant as above (belt in port 1, ECG in port 2).
+   With the Nonin backup: Nonin plugged in, finger in, as well.
+2. Open **Physio Recorder**, fill in Participant/Session, pick **HRD**. Click **1 Check signals**; wait
+   until every channel title is **green**.
+3. Open **HRD** (desktop shortcut), fill in its dialog. **Recording starts by itself** when HRD starts
+   (the app beeps and says *Recording started AUTOMATICALLY*). Run the task as normal.
+4. When HRD has finished, click **Stop recording** in Physio Recorder, then confirm.
+5. Check the **Last recording** panel: PASS / CHECK, and `HRD triggers: N` above 0.
+
+Needs an HRD launcher that sends the `HRD` trigger stream; with an older launcher the recording does not
+start by itself (click **2 Start recording** after HRD has started instead).
+
 ## Devices on this PC
 
 The **Devices** tick boxes say which devices this PC has: **PLUX hub** and **Flow sensor**. They are

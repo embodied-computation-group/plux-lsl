@@ -42,6 +42,7 @@ PRESETS = {
     "Rest - peak": {"task": "restpeak", "minutes": 15, "markers": None, "flow": False},
     "RRST": {"task": "rrst", "minutes": None, "markers": "RRST", "flow": True},
     "Effort task (dynamometer)": {"task": "effortreward", "minutes": None, "markers": "EffortReward", "flow": False},
+    "HRD": {"task": "hrd", "minutes": None, "markers": "HRD", "flow": False},
 }
 LEAD_IN_S = 3        # recorder warm-up before the participant screen appears
 LOST_S = 10          # no data for this long during a window = connection lost
