@@ -288,13 +288,17 @@ class App:
         self.ses = tk.StringVar(value=args.ses or "")
         self.recording = tk.StringVar(value=args.recording or next(iter(PRESETS)))
         self.minutes = tk.StringVar(value=str(args.minutes or ""))
+        self.form_fields = []  # disabled while a recording starts, runs or is saved
         for col, (text, var, width) in enumerate([("Participant", self.sub, 8), ("Session", self.ses, 5)]):
             ttk.Label(form, text=text).grid(row=0, column=2 * col, sticky="w", padx=(0, 4))
-            ttk.Entry(form, textvariable=var, width=width, font=FONT).grid(row=0, column=2 * col + 1, padx=(0, 16))
+            entry = ttk.Entry(form, textvariable=var, width=width, font=FONT)
+            entry.grid(row=0, column=2 * col + 1, padx=(0, 16))
+            self.form_fields.append(entry)
         ttk.Label(form, text="Recording").grid(row=0, column=4, sticky="w", padx=(0, 4))
         combo = ttk.Combobox(form, textvariable=self.recording, values=list(PRESETS), width=24, font=FONT)
         combo.grid(row=0, column=5, padx=(0, 16))
         combo.bind("<<ComboboxSelected>>", self.on_preset)
+        self.form_fields.append(combo)
         ttk.Label(form, text="Minutes").grid(row=0, column=6, sticky="w", padx=(0, 4))
         self.min_box = ttk.Spinbox(form, textvariable=self.minutes, from_=1, to=120, width=5, font=FONT)
         self.min_box.grid(row=0, column=7)
@@ -364,6 +368,11 @@ class App:
     # ---------- form ----------
     def preset(self):
         return PRESETS.get(self.recording.get().strip())
+
+    def set_form_enabled(self, enabled):
+        """Participant, Session and Recording: editable while idle or checking only."""
+        for field in self.form_fields:
+            field.config(state="normal" if enabled else "disabled")
 
     def on_form_change(self, *_):
         """Participant, session or recording edited (the entries are disabled while recording)."""
@@ -1031,6 +1040,7 @@ class App:
         self.state = "starting"
         for b in (self.btn_record, self.btn_disconnect, self.btn_check):
             b.config(state="disabled")
+        self.set_form_enabled(False)
         self.set_banner(f"Starting recorder ... ({self.path.name})", WARN)
         self.auto_reason = auto
         log.info("recording %s, %s min, signals: %s%s", self.path, minutes or "until stop", bad or "all good",
@@ -1055,6 +1065,7 @@ class App:
             self.state = "checking"
             self.btn_record.config(state="normal")
             self.btn_disconnect.config(state="normal")
+            self.set_form_enabled(True)
             messagebox.showerror("Recorder failed", f"The recorder did not start.\n\nDetails: "
                                  f"{self.rec_log}")
             return
@@ -1195,6 +1206,7 @@ class App:
 
     def back_to_checking(self):
         self.recorder = None
+        self.set_form_enabled(True)
         self.btn_record.config(text="2   Start recording", command=self.start_recording)
         self.root.deiconify()
         if self.session_on:
