@@ -1048,8 +1048,9 @@ class App:
                          "count": 0, "last": None, "uid": None,
                          "end": preset.get("end") if preset and minutes is None else None,
                          "end_label": None, "end_t": None}
-        self.banner_note = ((f"REPEAT: {repeat}. Recording it again as a new file ({self.path.name}).", WARN)
-                            if repeat and auto else None)
+        # a repeat (asked first when started by hand) says which file is which while it records
+        self.banner_note = ((f"REPEAT: {repeat}. This recording is a new file: {self.path.name}", WARN)
+                            if repeat else None)
         self.alert = None
         self.clear_summary(note=f"Recording {self.path.name} ...")
         self.state = "starting"
