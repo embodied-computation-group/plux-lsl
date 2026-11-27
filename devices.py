@@ -1,7 +1,9 @@
 """This PC's devices (devices.json) and the PLUX hub it uses. No hardware or GUI needed here.
 
-devices.json holds {"plux": bool, "flow": bool, "hub": "00:07:80:..." or null}. Files written
-before the hub was stored have no "hub" key: that means "not set", and the app looks for the hub.
+devices.json holds {"plux": bool, "flow": bool, "hub": "00:07:80:..." or null,
+"ports": {"1": "RESP", "2": "ECG"}}. Files written before the hub was stored have no "hub" key:
+that means "not set", and the app looks for the hub. "ports" says which sensor is on which hub
+port for sensors without an ID chip; missing means the lab's standard wiring (DEFAULT_PORTS).
 """
 
 import json
@@ -9,8 +11,18 @@ import re
 from pathlib import Path
 
 DEVICES_FILE = Path(__file__).resolve().parent / "devices.json"
-DEFAULTS = {"plux": True, "flow": True, "hub": None}
 HUB_NAME = "biosignalsplux"  # PLUX's device description for the hub
+# PLUX sensor class (from a sensor's ID chip) -> kind; the kind is the channel label and type
+SENSOR_CLASS = {
+    0: "UNKNOWN", 1: "EMG", 2: "ECG", 3: "LIGHT", 4: "EDA", 5: "BVP",
+    6: "RESP", 7: "XYZ", 8: "SYNC", 9: "EEG", 10: "SYNC_ADAP", 11: "SYNC_LED",
+    12: "SYNC_SW", 13: "USB", 14: "FORCE", 15: "TEMP", 16: "VPROBE",
+    17: "BREAKOUT", 18: "OXIMETER", 19: "GONI", 20: "ACT", 21: "EOG",
+    22: "EGG", 23: "ANSA", 26: "OSL",
+}
+DEFAULT_PORTS = {1: "RESP", 2: "ECG"}  # standard wiring: breathing belt on port 1, ECG on port 2
+KIND_WORDS = {"RESP": "breathing belt (RESP)", "ECG": "ECG"}
+DEFAULTS = {"plux": True, "flow": True, "hub": None, "ports": DEFAULT_PORTS}
 
 _MAC = re.compile(r"[0-9A-F]{2}([:-])[0-9A-F]{2}(\1[0-9A-F]{2}){4}")
 
@@ -35,6 +47,7 @@ def load_devices(path=DEVICES_FILE):
     except (OSError, ValueError):
         pass
     devices["hub"] = normalize_mac(devices["hub"])
+    devices["ports"] = normalize_ports(devices["ports"]) or dict(DEFAULT_PORTS)
     return devices
 
 
@@ -44,6 +57,71 @@ def save_devices(changes, path=DEVICES_FILE):
     devices.update(changes)
     Path(path).write_text(json.dumps(devices))
     return devices
+
+
+def normalize_ports(ports):
+    """{"1": "resp", "2": "ECG"} -> {1: "RESP", 2: "ECG"}; entries that are not a port 1-11 with a
+    known sensor kind are dropped (None if nothing is left)."""
+    if not isinstance(ports, dict):
+        return None
+    kinds = set(SENSOR_CLASS.values()) - {"UNKNOWN"}
+    out = {}
+    for port, kind in ports.items():
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            continue
+        kind = kind.strip().upper() if isinstance(kind, str) else None
+        if 1 <= port <= 11 and kind in kinds:
+            out[port] = kind
+    return dict(sorted(out.items())) or None
+
+
+def parse_port_kinds(text):
+    """'1=RESP,2=ECG' (plux_lsl.py --port-kinds) -> {1: "RESP", 2: "ECG"}; ValueError if malformed."""
+    pairs = [item.split("=") for item in text.split(",") if item.strip()]
+    if any(len(pair) != 2 for pair in pairs):
+        raise ValueError(f"expected PORT=KIND pairs such as 1=RESP,2=ECG, got {text!r}")
+    ports = normalize_ports(dict(pairs)) or {}
+    if len(ports) != len(pairs):
+        raise ValueError(f"unknown port or sensor kind in {text!r} (ports 1-11, kinds such as RESP, ECG)")
+    return ports
+
+
+def format_port_kinds(ports):
+    """{1: "RESP", 2: "ECG"} -> '1=RESP,2=ECG'."""
+    return ",".join(f"{port}={kind}" for port, kind in sorted(ports.items()))
+
+
+def describe_ports(ports):
+    """{1: "RESP", 2: "ECG"} -> 'breathing belt (RESP) on port 1, ECG on port 2' (for the RA)."""
+    return ", ".join(f"{KIND_WORDS.get(kind, kind)} on port {port}" for port, kind in sorted(ports.items()))
+
+
+def plan_ports(chips, port_kinds, forced=None):
+    """Which hub ports to record, and as which kind of sensor.
+
+    chips: {port: kind} from the sensors' ID chips (hub.getSensors()); "UNKNOWN" = no chip info.
+    port_kinds: this PC's port map, for sensors without an ID chip. forced: --ports, or None.
+    Returns ([(port, kind)], assumed) where assumed is True when no sensor was detected at all
+    and the port map alone decided which ports to record.
+      - a sensor with an ID chip keeps the chip's kind
+      - a port without chip info takes the kind from the port map (else UNKNOWN)
+      - no sensors detected (and no --ports): the ports in the port map
+    """
+    if forced:
+        ports, assumed = list(forced), False
+    elif chips:
+        ports, assumed = sorted(chips), False
+    else:
+        ports, assumed = sorted(port_kinds), True
+    plan = []
+    for port in ports:
+        kind = chips.get(port, "UNKNOWN")
+        if kind == "UNKNOWN":
+            kind = port_kinds.get(port, "UNKNOWN")
+        plan.append((port, kind))
+    return plan, assumed
 
 
 def find_hubs(found):

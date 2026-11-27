@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 from pylsl import StreamInfo, StreamInlet, StreamOutlet, cf_string, local_clock, resolve_byprop
 
 from check_xdf import assess
-from devices import auto_hub, load_devices, normalize_mac, parse_hub_lines, save_devices
+from devices import auto_hub, format_port_kinds, load_devices, normalize_mac, parse_hub_lines, save_devices
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from recorder import DATA_DIR, LOG_DIR, ROOT, output_path, start_recorder, stop_recorder
 from task_runs import TaskRuns
@@ -513,7 +513,9 @@ class App:
         self.set_banner(text, BAD)
 
     def connect_hub(self):
-        self.bridge, self.bridge_log = self.launch_streamer("plux_lsl.py", "hub", "--mac", self.hub)
+        ports = format_port_kinds(load_devices()["ports"])  # for sensors without an ID chip
+        self.bridge, self.bridge_log = self.launch_streamer("plux_lsl.py", "hub", "--mac", self.hub,
+                                                            "--port-kinds", ports)
         self.set_banner(f"Connecting to the hub {self.hub} ... (switch it on if it is off)", WARN)
         bridge = self.bridge
 
@@ -552,10 +554,13 @@ class App:
         battery = re.search(r"Battery: (\d+)%", text)
         chans = ", ".join(label for label, _ in self.monitor.channels)
         bat = f"battery {battery.group(1)}%" if battery else "battery unknown"
-        self.hub_status.config(text=f"Hub: connected, {bat}  |  channels: {chans}  |  {self.monitor.fs} Hz",
+        # sensors without an ID chip: plux_lsl.py says which sensor it assumes on which port
+        no_chip = re.search(r"(?:No sensor ID chips found|Sensors without ID chip): assuming (.+)", text)
+        note = f"  |  sensors have no ID chip, assuming {no_chip.group(1).strip()}" if no_chip else ""
+        self.hub_status.config(text=f"Hub: connected, {bat}  |  channels: {chans}  |  {self.monitor.fs} Hz{note}",
                                foreground=BAD if battery and int(battery.group(1)) < 20 else "black")
         self.hub_text = self.hub_status.cget("text")
-        log.info("stream found: %s, %s", chans, bat)
+        log.info("stream found: %s, %s%s", chans, bat, note)
         self.ensure_flow()
 
     def rebuild_axes(self):

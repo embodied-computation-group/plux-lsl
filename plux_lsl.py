@@ -22,7 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor" / "plux"))
 
 import plux  # noqa: E402
-from devices import candidate_hubs, paired_hubs  # noqa: E402
+from devices import (DEFAULT_PORTS, SENSOR_CLASS, candidate_hubs, describe_ports, format_port_kinds,  # noqa: E402
+                     paired_hubs, parse_port_kinds, plan_ports)
 import lsl_quiet  # noqa: E402,F401
 from pylsl import StreamInfo, StreamOutlet, cf_int32  # noqa: E402
 
@@ -33,14 +34,6 @@ CONNECT_ATTEMPTS, CONNECT_PAUSE_S = 3, 5  # a just-paired hub may not be found a
 PAIRED_CMD = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
               "Get-PnpDevice -Class Bluetooth -FriendlyName 'biosignalsplux*' -ErrorAction SilentlyContinue | "
               "ForEach-Object { $_.InstanceId + '|' + $_.Present + '|' + $_.FriendlyName }"]
-
-SENSOR_CLASS = {
-    0: "UNKNOWN", 1: "EMG", 2: "ECG", 3: "LIGHT", 4: "EDA", 5: "BVP",
-    6: "RESP", 7: "XYZ", 8: "SYNC", 9: "EEG", 10: "SYNC_ADAP", 11: "SYNC_LED",
-    12: "SYNC_SW", 13: "USB", 14: "FORCE", 15: "TEMP", 16: "VPROBE",
-    17: "BREAKOUT", 18: "OXIMETER", 19: "GONI", 20: "ACT", 21: "EOG",
-    22: "EGG", 23: "ANSA", 26: "OSL",
-}
 
 # Max sampling rate per number of active analog channels (from PLUX's docs).
 MAX_RATE = {1: 8000, 2: 5000, 3: 4000, 4: 3000, 5: 3000, 6: 2000, 7: 2000, 8: 2000}
@@ -100,17 +93,23 @@ class Hub(plux.SignalsDev):
             self.chunk = []
 
 
-def detect_sources(hub, forced_ports, n_bits):
-    """Return (sources, channel descriptions) for the ports to record."""
+def detect_sources(hub, forced_ports, n_bits, port_kinds):
+    """Return (sources, channel descriptions, {port: kind} taken from port_kinds) for the ports to
+    record. Sensors without an ID chip get their kind from port_kinds (devices.plan_ports)."""
     sensors = hub.getSensors()
-    ports = forced_ports or sorted(sensors)
-    if not ports:
+    chips = {port: SENSOR_CLASS.get(sensor.clas, "UNKNOWN") for port, sensor in sensors.items()}
+    plan, assumed = plan_ports(chips, port_kinds, forced_ports)
+    if not plan:
         sys.exit("No sensors detected. Plug sensors in, or pass --ports 1,2,...")
+    mapped = {port: kind for port, kind in plan if chips.get(port, "UNKNOWN") == "UNKNOWN" and kind != "UNKNOWN"}
+    if assumed:  # physio_app.py shows this line to the RA
+        print(f"No sensor ID chips found: assuming {describe_ports(dict(plan))}", flush=True)
+    elif mapped:
+        print(f"Sensors without ID chip: assuming {describe_ports(mapped)}", flush=True)
 
     sources, channels = [], []
-    for port in ports:
+    for port, kind in plan:
         sensor = sensors.get(port)
-        kind = SENSOR_CLASS.get(sensor.clas, "UNKNOWN") if sensor else "UNKNOWN"
         serial = sensor.serialNum if sensor else ""
 
         src = plux.Source()
@@ -126,7 +125,7 @@ def detect_sources(hub, forced_ports, n_bits):
             src.chMask = 0x01
             channels.append((f"{kind}{port}", kind, port, serial))
         sources.append(src)
-    return sources, channels
+    return sources, channels, mapped
 
 
 def make_outlet(mac, rate, n_bits, channels, properties):
@@ -160,6 +159,9 @@ def add_device_args(ap):
     ap.add_argument("--rate", type=int, default=1000, help="sampling rate in Hz (default 1000)")
     ap.add_argument("--bits", type=int, choices=(8, 16), default=16, help="ADC resolution (default 16)")
     ap.add_argument("--ports", help="comma-separated ports to record instead of auto-detect, e.g. 1,2,3,4,9")
+    ap.add_argument("--port-kinds", type=parse_port_kinds, default=dict(DEFAULT_PORTS),
+                    help="sensor kind per port for sensors without an ID chip; also the ports recorded when "
+                         f"none is detected (default {format_port_kinds(DEFAULT_PORTS)})")
 
 
 def connect(args):
@@ -186,7 +188,9 @@ def connect(args):
         if properties:
             print("Device:", ", ".join(f"{k}={v}" for k, v in properties.items()))
 
-        sources, channels = detect_sources(hub, forced, args.bits)
+        sources, channels, mapped = detect_sources(hub, forced, args.bits, args.port_kinds)
+        if mapped:  # kept in the recording: these kinds were assumed, not read from a chip
+            properties = {**properties, "kinds_from_port_map": format_port_kinds(mapped)}
         print("Channels:")
         for label, kind, port, serial in channels:
             print(f"  port {port}: {label:<14} {kind:<9} serial {serial}")
