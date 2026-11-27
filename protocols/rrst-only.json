@@ -1,0 +1,30 @@
+{
+  "_note": "RRST only is PROVISIONAL until Micah confirms. Launch targets are shortcut file names on the current user's Desktop; check with: .venv\\Scripts\\python.exe session_runner.py --check rrst-only",
+  "name": "RRST only",
+  "order_status": "Step order PROVISIONAL - confirm with Micah",
+  "log_dir": "logs/session_runner",
+  "devices": ["physio_recorder", "rrst_teensy", "sensorbridge"],
+  "participant_digits_only": true,
+  "steps": [
+    {
+      "id": "rrst",
+      "title": "RRST (breathing resistance)",
+      "instructions": "In the Physio Recorder fill in Participant and Session, pick RRST, click 1 Check signals and wait for green; ask for one or two test breaths through the mouthpiece and check that the Flow trace shows them. Then press Start here: RRST opens in MATLAB and asks three questions; type the values below and press Enter after each. Recording starts by itself and stops a few seconds after RRST finishes. Press Done when the Last recording panel shows PASS.",
+      "prompts": [
+        "RRST device and SensorBridge plugged in",
+        "Tube in, wedge parked",
+        "Flow sensor arrow points toward the participant",
+        "Physio Recorder: RRST picked, signals green, test breaths seen in Flow"
+      ],
+      "launch": {"open": "RRST (MATLAB).lnk"},
+      "type_into_task": [
+        ["Physio Recorder > Participant", "{participant}"],
+        ["Physio Recorder > Session", "{session}"],
+        ["Physio Recorder > Recording", "RRST"],
+        ["RRST > subject ID", "{participant}"],
+        ["RRST > Session number", "{session}"],
+        ["RRST > Language", "e"]
+      ]
+    }
+  ]
+}

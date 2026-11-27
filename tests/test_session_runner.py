@@ -12,7 +12,7 @@ STEP = {"id": "hrd", "title": "HRD", "instructions": "Do it.", "prompts": ["Elec
 
 
 def protocol_raw(**changes):
-    raw = {"site": "Testsite", "order_status": "PROVISIONAL", "devices": ["physio_recorder"],
+    raw = {"name": "Test protocol", "order_status": "PROVISIONAL", "devices": ["physio_recorder"],
            "steps": [dict(STEP), dict(STEP, id="rrst", title="RRST", launch=None)]}
     raw.update(changes)
     return raw
@@ -32,22 +32,41 @@ def problems_of(raw, root):
 
 # ---- protocol files
 
+SHORTCUTS = {"hrd": "HRD (Heart Rate Discrimination).lnk", "rrst": "RRST (MATLAB).lnk",
+             "effort": "Effort task (dynamometer).lnk"}
+ORDERS = {"full-battery": ["rest", "hrd", "rrst", "effort"], "physio-hrd-rrst": ["rest", "hrd", "rrst"],
+          "rrst-only": ["rrst"]}
+
+
 def test_shipped_protocols_load_and_are_marked_provisional():
-    names = sr.protocol_names()
-    assert {"maastricht", "zurich", "boris"} <= set(names)
-    orders = {"maastricht": ["rest", "hrd", "rrst", "effort"], "zurich": ["rest", "hrd", "rrst"], "boris": ["rrst"]}
-    for name, order in orders.items():
+    assert set(ORDERS) <= set(sr.protocol_names())
+    for name, order in ORDERS.items():
         p = sr.load_protocol(name)
         assert [s["id"] for s in p["steps"]] == order
         assert "PROVISIONAL" in p["order_status"]
         assert p["log_dir"] == (sr.ROOT / "logs" / "session_runner").resolve()
-        for step in p["steps"]:   # every launch target is either nothing or a marked placeholder
-            assert step["launch"] is None or sr.PLACEHOLDER in step["launch"]["open"]
+        assert p["participant_digits_only"] is True   # every shipped protocol contains RRST
+        for step in p["steps"]:   # nothing to open, or a shortcut file name on the Desktop
+            assert step["launch"] is None if step["id"] == "rest" else step["launch"] == {"open": SHORTCUTS[step["id"]]}
+
+
+def test_shipped_protocols_name_no_site():
+    for path in sr.PROTOCOL_DIR.glob("*.json"):
+        text = path.read_text(encoding="utf-8").lower()
+        for site in ("maastricht", "zurich", "boris", "aarhus", "site"):
+            assert site not in text, (path.name, site)
+
+
+def test_rrst_box_shows_subject_id_session_and_language():
+    rrst = sr.load_protocol("rrst-only")["steps"][0]
+    typed = dict(rrst["type_into_task"])
+    assert (typed["RRST > subject ID"], typed["RRST > Session number"], typed["RRST > Language"]) == (
+        "{participant}", "{session}", "e")
 
 
 def test_valid_protocol_with_defaults(tmp_path):
     p = sr.validate_protocol(protocol_raw(), tmp_path)
-    assert p["site"] == "Testsite"
+    assert p["name"] == "Test protocol" and p["participant_digits_only"] is False
     assert p["log_dir"] == (tmp_path / "logs" / "session_runner").resolve()
     assert [s["id"] for s in p["steps"]] == ["hrd", "rrst"]
     assert p["steps"][1]["launch"] is None
@@ -60,12 +79,12 @@ def test_notes_starting_with_underscore_are_ignored(tmp_path):
 
 
 def test_every_problem_is_listed(tmp_path):
-    raw = protocol_raw(site="", devices=["toaster"], colour="red")
+    raw = protocol_raw(name="", devices=["toaster"], colour="red", participant_digits_only="yes")
     raw["steps"] = [dict(STEP, id="Bad ID", title="", promts=["typo"]), dict(STEP, launch={"open": "a", "command": ["b"]}),
                     dict(STEP, type_into_task=[["Participant", "{participnat}"]])]
     del raw["steps"][2]["launch"]
     text = problems_of(raw, tmp_path)
-    for expected in ("unknown setting 'colour'", '"site" missing', '"devices" must be', '"id" must be',
+    for expected in ("unknown setting 'colour'", '"name" missing', '"participant_digits_only" must be true or false', '"devices" must be', '"id" must be',
                      '"title" missing', "unknown setting 'promts'", 'exactly one of "open" or "command"',
                      "id used twice", '"launch" missing', "unknown {participnat}"):
         assert expected in text, expected
@@ -92,16 +111,16 @@ def test_log_dir_never_inside_a_data_folder(tmp_path):
 
 
 def test_missing_broken_and_named_files(tmp_path):
-    write(tmp_path, "site_a", protocol_raw())
+    write(tmp_path, "proto_a", protocol_raw())
     with pytest.raises(ProtocolError) as e:
         sr.load_protocol("nosuch", folder=tmp_path, root=tmp_path)
-    assert str(e.value).startswith("Protocol file not found") and str(e.value).endswith(": site_a")
-    write(tmp_path, "broken", '{"site": "X",\n "steps": [}')
+    assert str(e.value).startswith("Protocol file not found") and str(e.value).endswith(": proto_a")
+    write(tmp_path, "broken", '{"name": "X",\n "steps": [}')
     with pytest.raises(ProtocolError, match=r"not valid JSON \(line 2"):
         sr.load_protocol("broken", folder=tmp_path, root=tmp_path)
     path = write(tmp_path, "good", protocol_raw())
     assert sr.load_protocol("good", folder=tmp_path, root=tmp_path)["file"] == str(path)
-    assert sr.load_protocol(str(path), folder=tmp_path / "elsewhere", root=tmp_path)["site"] == "Testsite"
+    assert sr.load_protocol(str(path), folder=tmp_path / "elsewhere", root=tmp_path)["name"] == "Test protocol"
 
 
 def test_demo_replaces_every_launch_with_notepad(tmp_path):
@@ -130,6 +149,14 @@ def test_bad_start_input_names_the_field(initials, participant, session, field):
     assert len(problems) == 1 and problems[0].startswith(field)
 
 
+def test_digits_only_participant_for_rrst_protocols():
+    assert sr.validate_start("JD", "0001", "1", digits_only=True)[1] == []
+    for bad in ("pilotA", "A001", "00 1", ""):
+        _, problems = sr.validate_start("JD", bad, "1", digits_only=True)
+        assert problems == ["Participant ID: digits only, e.g. 0001 (RRST in this session accepts only a number)"]
+    assert sr.validate_start("JD", "pilotA", "1", digits_only=False)[1] == []
+
+
 def test_fill_only_known_tokens():
     who = {"initials": "JD", "participant": "0123", "session": "2"}
     assert sr.fill("{participant} / {session} / {initials} / {other}", who) == "0123 / 2 / JD / {other}"
@@ -147,6 +174,20 @@ def test_launch_problems(tmp_path):
     assert "Cannot find the program" in sr.launch_problem({"command": ["surely-not-a-program-xyz"]})
     assert "Cannot find the folder" in sr.launch_problem({"command": [str(tmp_path / "HRD.lnk")],
                                                           "cwd": str(tmp_path / "nofolder")})
+
+
+def test_bare_shortcut_name_is_looked_up_on_the_users_desktop(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    name = "RRST (MATLAB).lnk"
+    assert sr.resolve_open(name) == str(tmp_path / "Desktop" / name)
+    assert "Cannot find " + str(tmp_path / "Desktop" / name) in sr.launch_problem({"open": name})
+    (tmp_path / "Desktop").mkdir()
+    (tmp_path / "Desktop" / name).write_text("x")
+    assert sr.launch_problem({"open": name}) is None
+    other = tmp_path / "elsewhere" / "task.bat"   # a path with a folder is used as it is
+    assert sr.resolve_open(str(other)) == str(other)
+    monkeypatch.setenv("TASKS", str(tmp_path / "elsewhere"))
+    assert sr.resolve_open("%TASKS%\\task.bat") == str(tmp_path / "elsewhere") + "\\task.bat"
 
 
 def test_start_launch_refuses_a_missing_target(tmp_path):
@@ -209,7 +250,8 @@ def test_whole_session_is_logged(tmp_path):
     s.finish("completed: all steps shown")
 
     data = json.loads(s.json_path.read_text(encoding="utf-8"))
-    assert (data["participant"], data["session"], data["initials"], data["site"]) == ("0123", "2", "JD", "Testsite")
+    assert (data["participant"], data["session"], data["initials"], data["protocol"]) == ("0123", "2", "JD", "Test protocol")
+    assert data["protocol_file"] == "test.json" and "site" not in data
     assert data["devices"]["all_ok"] is False and data["devices"]["skip_reason"] == "recorder on the other laptop"
     hrd, rrst = data["steps"]
     assert hrd["status"] == "done" and [a["outcome"] for a in hrd["attempts"]] == ["problem", "done"]
@@ -274,8 +316,15 @@ def test_error_file_goes_to_the_log_folder(tmp_path):
     assert "Traceback ..." in (tmp_path / "logs" / "session-runner_errors.txt").read_text(encoding="utf-8")
 
 
-def test_check_command_lists_placeholders(capsys):
-    assert sr.main(["--check", "zurich"]) == 1
+def test_check_command_without_and_with_the_shortcuts(capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert sr.main(["--check", "full-battery"]) == 1
     out = capsys.readouterr().out
-    assert "TODO  hrd" in out and "TODO  rrst" in out and "ok    rest" in out
+    assert "TODO  hrd" in out and "TODO  rrst" in out and "TODO  effort" in out and "ok    rest" in out
+    (tmp_path / "Desktop").mkdir()
+    for name in SHORTCUTS.values():
+        (tmp_path / "Desktop" / name).write_text("x")
+    for protocol in ORDERS:
+        assert sr.main(["--check", protocol]) == 0
+        assert capsys.readouterr().out.rstrip().endswith("Everything is set up.")
     assert sr.main(["--check", "nosuch"]) == 2

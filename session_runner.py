@@ -1,8 +1,8 @@
-"""Session Runner: walks the RA through one lab session, step by step, from a per-site protocol file.
+"""Session Runner: walks the RA through one lab session, step by step, from a protocol file.
 
-Start it from windows\\session_runner.bat [site], or:
-    .venv\\Scripts\\pythonw.exe session_runner.py [--protocol maastricht] [--demo]
-    .venv\\Scripts\\python.exe session_runner.py --check maastricht   (no window: list what is not set up)
+Start it from windows\\session_runner.bat [protocol], or:
+    .venv\\Scripts\\pythonw.exe session_runner.py [--protocol full-battery] [--demo]
+    .venv\\Scripts\\python.exe session_runner.py --check full-battery   (no window: list what is not set up)
 
 Screens: start (RA initials, participant, session) -> device check -> one screen per protocol step
 (instructions, tick boxes, Start opens the task, Done / Problem) -> end summary. It does not control the
@@ -41,7 +41,7 @@ PHYSIO_TITLE = "Physio Recorder"   # physio_app.py's window title
 
 NOT_STARTED, STARTED, DONE, PROBLEM, SKIPPED = "not started", "started", "done", "problem", "skipped"
 STEP_KEYS = {"id", "title", "instructions", "prompts", "launch", "type_into_task"}
-TOP_KEYS = {"site", "order_status", "log_dir", "devices", "steps"}
+TOP_KEYS = {"name", "order_status", "log_dir", "devices", "participant_digits_only", "steps"}
 
 
 class ProtocolError(Exception):
@@ -51,12 +51,12 @@ class ProtocolError(Exception):
 # ---------------------------------------------------------------- protocol file
 
 def protocol_names(folder=PROTOCOL_DIR):
-    """The protocol files in protocols/, by name (maastricht, zurich, ...)."""
+    """The protocol files in protocols/, by name (full-battery, rrst-only, ...)."""
     return sorted(p.stem for p in Path(folder).glob("*.json"))
 
 
 def protocol_path(name_or_path, folder=PROTOCOL_DIR):
-    """A protocol name (zurich) or a path to a .json file."""
+    """A protocol name (rrst-only) or a path to a .json file."""
     text = str(name_or_path).strip()
     if text.lower().endswith(".json") or "/" in text or "\\" in text:
         return Path(text)
@@ -108,9 +108,12 @@ def validate_protocol(raw, root=ROOT):
         raise ProtocolError("The protocol file must contain one JSON object { ... }.")
     raw = _strip_notes(raw)
     problems = [f"unknown setting {k!r}" for k in sorted(set(raw) - TOP_KEYS)]
-    site = raw.get("site")
-    if not (isinstance(site, str) and site.strip()):
-        problems.append("\"site\" missing (e.g. \"Maastricht\")")
+    name = raw.get("name")
+    if not (isinstance(name, str) and name.strip()):
+        problems.append("\"name\" missing (e.g. \"Full battery\")")
+    digits_only = raw.get("participant_digits_only", False)
+    if not isinstance(digits_only, bool):
+        problems.append("\"participant_digits_only\" must be true or false")
     devices = raw.get("devices", [])
     if not isinstance(devices, list) or any(d not in DEVICES for d in devices):
         problems.append(f"\"devices\" must be a list of: {', '.join(DEVICES)}")
@@ -164,8 +167,8 @@ def validate_protocol(raw, root=ROOT):
         log_dir = None
     if problems:
         raise ProtocolError("The protocol file has problems:\n- " + "\n- ".join(problems))
-    return {"site": site.strip(), "order_status": raw.get("order_status", ""), "log_dir": log_dir,
-            "devices": devices, "steps": clean_steps}
+    return {"name": name.strip(), "order_status": raw.get("order_status", ""), "log_dir": log_dir,
+            "devices": devices, "participant_digits_only": digits_only, "steps": clean_steps}
 
 
 def load_protocol(name_or_path, folder=PROTOCOL_DIR, root=ROOT, demo=False):
@@ -198,13 +201,16 @@ def fill(template, who):
 
 # ---------------------------------------------------------------- start screen input
 
-def validate_start(initials, participant, session):
-    """(values, problems): the start screen's three fields, cleaned, and what is wrong with them."""
+def validate_start(initials, participant, session, digits_only=False):
+    """(values, problems): the start screen's three fields, cleaned, and what is wrong with them.
+    digits_only: the protocol's participant_digits_only (RRST reads the subject ID as a number)."""
     initials, participant, session = (str(x or "").strip() for x in (initials, participant, session))
     problems = []
     if not re.fullmatch(r"[A-Za-z]{2,4}", initials):
         problems.append("RA initials: 2 to 4 letters, e.g. JD")
-    if not re.fullmatch(r"[A-Za-z0-9]{1,20}", participant):
+    if digits_only and not re.fullmatch(r"[0-9]{1,20}", participant):
+        problems.append("Participant ID: digits only, e.g. 0001 (RRST in this session accepts only a number)")
+    elif not re.fullmatch(r"[A-Za-z0-9]{1,20}", participant):
         problems.append("Participant ID: letters and digits only (no spaces, dashes or underscores), e.g. 0123")
     if not re.fullmatch(r"[1-9][0-9]?", session):
         problems.append("Session: a number from 1 to 99 (type 1, not 01)")
@@ -212,6 +218,18 @@ def validate_start(initials, participant, session):
 
 
 # ---------------------------------------------------------------- launching
+
+def desktop():
+    """The current user's Desktop folder (where the laptops' task shortcuts are)."""
+    return os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")), "Desktop")
+
+
+def resolve_open(value):
+    """An "open" value: a bare file name ("HRD (Heart Rate Discrimination).lnk") is looked up on the current
+    user's Desktop; a path (with a folder) is used as it is. %VARS% are expanded."""
+    value = os.path.expandvars(value)
+    return value if os.path.dirname(value) else os.path.join(desktop(), value)
+
 
 def launch_problem(launch):
     """None if the launch target can be started, else a message for the RA."""
@@ -222,7 +240,7 @@ def launch_problem(launch):
         return ("This step's launch target has not been set up on this laptop yet (protocol file says "
                 f"'{PLACEHOLDER}'). Open the task from its desktop shortcut instead, and tell the researcher.")
     if "open" in launch:
-        path = Path(os.path.expandvars(launch["open"]))
+        path = Path(resolve_open(launch["open"]))
         if not path.exists():
             return f"Cannot find {path}. Open the task from its desktop shortcut instead, and tell the researcher."
     else:
@@ -241,7 +259,7 @@ def start_launch(launch):
     if problem:
         raise OSError(problem)
     if "open" in launch:
-        os.startfile(os.path.expandvars(launch["open"]))   # .lnk, .bat, .exe: as a double-click would
+        os.startfile(resolve_open(launch["open"]))   # .lnk, .bat, .exe: as a double-click would
         return
     cmd = [os.path.expandvars(c) for c in launch["command"]]
     cwd = os.path.expandvars(launch["cwd"]) if launch.get("cwd") else None
@@ -343,7 +361,8 @@ class Session:
                       for s in protocol["steps"]]
         self.txt_path, self.json_path = log_paths(protocol["log_dir"], who["participant"], who["session"],
                                                   self.started, demo)
-        self.event("SESSION", None, f"site {protocol['site']} ({protocol.get('file', '?')}); RA {who['initials']}, "
+        self.event("SESSION", None, f"protocol {protocol['name']} ({Path(protocol.get('file', '?')).name}); "
+                   f"RA {who['initials']}, "
                    f"participant {who['participant']}, session {who['session']}" + ("; DEMO MODE" if demo else ""))
 
     def step(self, step_id):
@@ -444,7 +463,8 @@ class Session:
 
     def to_dict(self):
         p = self.protocol
-        return {"site": p["site"], "protocol_file": p.get("file"), "order_status": p.get("order_status"),
+        return {"protocol": p["name"], "protocol_file": Path(p.get("file", "?")).name,
+                "order_status": p.get("order_status"),
                 "demo": self.demo, **self.who, "started": self.started.isoformat(),
                 "ended": self.ended.isoformat() if self.ended else None, "end_reason": self.end_reason,
                 "devices": self.devices, "steps": self.steps, "events": self.events}
@@ -459,11 +479,17 @@ def check_cli(name):
     except ProtocolError as e:
         print(e)
         return 2
-    print(f"{protocol['file']}: site {protocol['site']}, {len(protocol['steps'])} steps. {protocol['order_status']}")
+    print(f"{protocol['file']}: {protocol['name']}, {len(protocol['steps'])} steps. {protocol['order_status']}")
     bad = 0
     for step in protocol["steps"]:
-        problem = launch_problem(step["launch"])
-        target = "nothing to open" if step["launch"] is None else json.dumps(step["launch"])
+        launch = step["launch"]
+        problem = launch_problem(launch)
+        if launch is None:
+            target = "nothing to open"
+        elif "open" in launch:
+            target = resolve_open(launch["open"])
+        else:
+            target = " ".join(launch["command"])
         print(f"  {'TODO' if problem else 'ok  '}  {step['id']}: {target}")
         if problem:
             print(f"        {problem}")
@@ -552,38 +578,42 @@ class App:
         form = ttk.Frame(self.body, padding=(0, 10))
         form.pack(anchor="w")
         names = protocol_names()
-        self.site_var = tk.StringVar(value=self.args.protocol or (names[0] if len(names) == 1 else ""))
+        self.protocol_var = tk.StringVar(value=self.args.protocol or (names[0] if len(names) == 1 else ""))
         self.vars = [tk.StringVar() for _ in range(3)]
-        rows = [("Site (protocol)", None), ("RA initials", self.vars[0]), ("Participant ID", self.vars[1]),
+        rows = [("Protocol", None), ("RA initials", self.vars[0]), ("Participant ID", self.vars[1]),
                 ("Session number", self.vars[2])]
         for r, (text, var) in enumerate(rows):
             tk.Label(form, text=text, font=BOLD).grid(row=r, column=0, sticky="w", padx=(0, 12), pady=6)
             if var is None:
-                w = ttk.Combobox(form, textvariable=self.site_var, values=names, font=BIG, width=18, state="readonly")
+                w = ttk.Combobox(form, textvariable=self.protocol_var, values=names, font=BIG, width=18,
+                                 state="readonly")
             else:
                 w = tk.Entry(form, textvariable=var, font=BIG, width=20)
             w.grid(row=r, column=1, sticky="w", pady=6)
             if r == 1:
                 w.focus_set()
-        self.label(self.body, "Participant ID: letters and digits only. Session: a number (1, 2, ...).", fg=GREY)
+        self.label(self.body, "Participant ID: letters and digits only; digits only when the session includes RRST. "
+                              "Session: a number (1, 2, ...).", fg=GREY)
         self.start_msg = self.label(self.body, "", fg=RED)
         ttk.Button(self.body, text="Next  >", command=self.start_next).pack(anchor="w", pady=10)
         self.root.bind("<Return>", lambda e: self.start_next())
 
     def start_next(self):
         from tkinter import messagebox
-        who, problems = validate_start(*(v.get() for v in self.vars))
-        if not self.site_var.get():
-            problems.insert(0, "Site: pick this laptop's site")
-        if problems:
-            self.start_msg.config(text="\n".join(problems))
+        if not self.protocol_var.get():
+            self.start_msg.config(text="Protocol: pick one from the list")
             return
         try:
-            protocol = load_protocol(self.site_var.get(), demo=self.args.demo)
+            protocol = load_protocol(self.protocol_var.get(), demo=self.args.demo)
         except ProtocolError as e:
             self.start_msg.config(text=str(e))
             return
-        if not messagebox.askyesno("Check", f"Site: {protocol['site']}\nRA: {who['initials']}\n"
+        who, problems = validate_start(*(v.get() for v in self.vars),
+                                       digits_only=protocol["participant_digits_only"])
+        if problems:
+            self.start_msg.config(text="\n".join(problems))
+            return
+        if not messagebox.askyesno("Check", f"Protocol: {protocol['name']}\nRA: {who['initials']}\n"
                                    f"Participant: {who['participant']}\nSession: {who['session']}\n\nIs this correct?",
                                    parent=self.root):
             return
@@ -612,7 +642,7 @@ class App:
         self.btn_dev_skip.pack(side="left")
         if not self.protocol["devices"]:
             self.device_results = {}
-            self.label(self.dev_frame, "No devices to check for this site.")
+            self.label(self.dev_frame, "No devices to check in this protocol.")
             self.btn_dev_ok.config(state="normal")
             return
         self.run_device_check()
@@ -861,12 +891,12 @@ def write_error(text, log_dir=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--protocol", help="site protocol: a name in protocols/ (maastricht) or a .json path")
-    ap.add_argument("site", nargs="?", help="same as --protocol")
+    ap.add_argument("--protocol", help="a protocol name in protocols/ (full-battery) or a .json path")
+    ap.add_argument("name", nargs="?", help="same as --protocol")
     ap.add_argument("--demo", action="store_true", help="every launch opens Notepad; log files end in _demo")
     ap.add_argument("--check", metavar="PROTOCOL", help="no window: list launch targets still to fill in")
     args = ap.parse_args(argv)
-    args.protocol = args.protocol or args.site
+    args.protocol = args.protocol or args.name
     if args.check:
         return check_cli(args.check)
     try:
