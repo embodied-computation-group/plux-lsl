@@ -90,7 +90,7 @@ Needs an HRD launcher that sends the `HRD` trigger stream; with an older launche
 start or stop by itself (click **2 Start recording** after HRD has started, **Stop recording** when it ends).
 
 **All three tasks:** the recording also stops by itself if the task crashes or is closed (its trigger
-stream gone for about 15 s): *Recording stopped AUTOMATICALLY: ... trigger stream gone*. Note it and
+stream gone for about 15 s): *Recording stopped AUTOMATICALLY: ... closed before it finished. Recording saved.* Note it and
 tell the researcher. If you click **2 Start recording** for a task that was already recorded for this
 participant and session, the app asks first (answer **No** unless you mean to repeat it). A repeat that
 starts by itself is recorded as a new file, and the banner says *REPEAT: ... was already recorded*.
@@ -149,7 +149,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | `Internal error: see logs\app_<date>-<time>.log` (banner) | Something unexpected went wrong inside the app; the details are in that log. Recording usually goes on: check the state line, then tell the researcher and send the log. |
 | `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Then the recording stops by itself about 20 s later and the new task run starts recording by itself; if not, Stop, and the new run is picked up. |
 | `Recording stopped AUTOMATICALLY: RRST ended (session_end_...)` (or `HRD ended`, `EffortReward ended`) | Normal: the task sent its end marker; the recording went on 5 s more, then stopped. Check the summary. |
-| `Recording stopped AUTOMATICALLY: ... trigger stream gone` | The task closed or crashed without its end marker. The data up to then is saved. Note it and tell the researcher. A restarted task starts a new recording by itself. |
+| `Recording stopped AUTOMATICALLY: ... closed before it finished. Recording saved.` | The task closed or crashed without its end marker. The data up to then is saved. Note it and tell the researcher. A restarted task starts a new recording by itself. |
 | `... was already recorded at HH:MM (...). Record again as a new file?` | This participant, session and recording already has a file. **No** if you clicked Start by mistake; **Yes** to repeat it (saved as `_run-2`, `_run-3`, ...). |
 | `REPEAT: ... was already recorded` (banner) | The task was started again and recorded by itself as a new file. Fine if the repeat was intended; otherwise note it. |
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |

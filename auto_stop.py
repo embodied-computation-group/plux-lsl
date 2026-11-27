@@ -8,6 +8,7 @@ reason() on every tick.
 END_GRACE_S = 5    # after the task's end marker, keep recording this long (trailing physiology)
 GONE_S = 15        # the recorded run's trigger stream unresolvable this long = task crashed or closed
 GONE_MISSES = 3    # ... and missed this many resolves in a row: a single missed resolve never stops
+GONE_TEXT = "closed before it finished. Recording saved."  # banner: "...: <task> closed before ..."
 
 
 def is_end_marker(label, prefix):
@@ -52,9 +53,9 @@ class AutoStop:
 
     def reason(self, now):
         """None while recording should go on, else why it stops: "ended (<label>)" once the grace
-        after the end marker has passed, or "trigger stream gone"."""
+        after the end marker has passed, or GONE_TEXT when the stream is gone."""
         if self.end_t is not None:  # end marker seen: always wait out the grace
             return f"ended ({self.end_label})" if now - self.end_t >= self.grace_s else None
         if self.gone:
-            return "trigger stream gone"
+            return GONE_TEXT
         return None

@@ -1,6 +1,6 @@
 import pytest
 
-from auto_stop import END_GRACE_S, GONE_S, AutoStop, is_end_marker
+from auto_stop import END_GRACE_S, GONE_S, GONE_TEXT, AutoStop, is_end_marker
 
 
 @pytest.mark.parametrize("label, prefix", [
@@ -81,7 +81,7 @@ def test_stream_gone_for_long_enough_stops():
     stop = AutoStop()
     resolves(stop, 0, 20, True)
     last = resolves(stop, 24, 24 + GONE_S + 4, False)
-    assert stop.reason(last) == "trigger stream gone"
+    assert stop.reason(last) == GONE_TEXT
 
 
 def test_a_single_missed_resolve_never_stops():
@@ -101,7 +101,7 @@ def test_two_misses_far_apart_are_not_enough():
     stop.resolved(False, 4 + GONE_S + 10)
     assert stop.reason(100) is None
     stop.resolved(False, 4 + GONE_S + 14)         # third miss in a row
-    assert stop.reason(100) == "trigger stream gone"
+    assert stop.reason(100) == GONE_TEXT
 
 
 def test_misses_quickly_in_a_row_are_not_enough():
