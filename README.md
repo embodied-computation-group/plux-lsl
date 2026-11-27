@@ -12,7 +12,7 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 
 1. **Hub on.** Press the button on the biosignalsplux hub; its light blinks. Battery shows in the app.
 2. **Sensors on the participant.** Respiration belt around the chest, snug but comfortable. ECG electrodes
-   on clean, dry skin, with the leads clipped on.
+   on clean, dry skin, with the leads clipped on. Cables into the hub: **belt in port 1, ECG in port 2**.
 3. Open **Physio Recorder** (desktop shortcut).
 4. Fill in **Participant** and **Session**, and pick **Rest - baseline** or **Rest - peak**
    (15 min is filled in).
@@ -54,6 +54,21 @@ remembered (in `devices.json`) and can be changed only while disconnected. An un
 started, not waited for, and not expected in the summary. RRST then records with whatever is ticked:
 hub + flow, hub only, flow only, or task triggers only. Rest recordings need the PLUX hub.
 
+**Hub: 00:07:80:xx:xx:xx [Change]** next to the tick boxes is this PC's own PLUX hub (each site has its
+own). Its MAC is printed on the hub's label.
+- The first time, it says *not set yet*: **Check signals** finds the hub paired with this PC and keeps it.
+  If several hubs are paired, a window asks which one; pick the one whose MAC is on your hub's label.
+- To use another hub: **Disconnect**, click **Change**, pick it from the list or type its MAC
+  (six pairs such as `00:07:80:4D:33:82`), then **OK**.
+- A new hub must first be paired in **Windows Settings > Bluetooth & devices > Add device** (hub switched
+  on). Right after pairing the hub may not be found yet: wait a minute, then *Check signals* again.
+
+**Sensor cables:** belt in **port 1**, ECG in **port 2** of the hub (the lab's standard wiring). Sensors
+with an ID chip are recognised on any port. Sensors **without** an ID chip are not: the app then assumes
+the standard wiring, and the hub line says *sensors have no ID chip, assuming breathing belt (RESP) on
+port 1, ECG on port 2*. If a channel then says `FLAT`, check the cable is in the right port. A site that
+wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports": {"1": "RESP", "2": "ECG"}`.
+
 ## What the window shows
 
 - The line under the hub status says what is happening, at a glance:
@@ -73,7 +88,9 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 | `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Stop, and the new task run is picked up (recording restarts by itself). |
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
-| `Could not connect to the hub` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Then *Check signals* again. |
+| `Could not connect to the hub 00:07:80:...` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Is it **this PC's hub** (MAC on its label = the one shown)? If not, *Change*. Then *Check signals* again. |
+| `No PLUX hub found` | The hub is not paired with this PC: switch it on, pair it in Windows Bluetooth settings (see *Devices on this PC*), then *Check signals* again. Or *Change* and type the MAC from its label. |
+| `sensors have no ID chip, assuming ...` (hub line) | Normal for some sensors. Belt must be in port 1, ECG in port 2; a channel that stays `FLAT` is probably in the wrong port. |
 | `NO DATA` / `Lost the hub` | Hub turned off, out of range or battery empty. Recording up to that point is saved. |
 | `FLAT - sensor not connected or not on the body` | Sensor cable not plugged into the hub, or sensor not on the participant. |
 | `CLIPPING` | Signal too large: check placement, ask the participant to keep still. |
@@ -99,6 +116,14 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 - `segments.py <file> --start "level_(\w+)_ready" --end "level_{}_done"`: variable-length segments
   (wedge-level bench test).
 - `plux_lsl.py --list` / `flow_lsl.py --list`: check that a device connects; prints the sensors detected.
+- `plux_lsl.py --find`: the biosignalsplux hubs paired with this PC (their MACs); the app uses the same search.
+  `plux_lsl.py --mac 00:07:80:xx:xx:xx` picks the hub (the command-line default is the original lab hub; the app
+  always passes this PC's hub from `devices.json`).
+- `devices.json` (per PC, not in git): `{"plux": true, "flow": true, "hub": "00:07:80:...", "ports": {"1": "RESP",
+  "2": "ECG"}}`. `ports` is the sensor kind per hub port for sensors without an ID chip (missing = this standard
+  wiring); the app passes it as `plux_lsl.py --port-kinds 1=RESP,2=ECG`. Chip sensors keep the chip's kind;
+  with no sensor detected at all, the ports in the map are recorded. Assumed kinds are noted in the PLUX
+  stream's metadata (`kinds_from_port_map`).
 - Streams: `PLUX` (raw ADC counts, int32; column 0 `nSeq`), `Flow` (slm, degC; column 0 `nSeq`),
   `SessionMarkers` (`<task>_start` / `<task>_end` / `<task>_end_early`), task markers (e.g. `RRST`).
 - Software: Python 3.13 venv in `.venv` (PLUX's API has no 3.11 build), LabRecorder 1.18 in `LabRecorder\`,
@@ -110,8 +135,10 @@ hub + flow, hub only, flow only, or task triggers only. Rest recordings need the
 2. From this folder: `py -3.13 -m venv .venv`, then `.venv\Scripts\python.exe -m pip install -r requirements.txt`.
 3. Download LabRecorder 1.18.0 for Windows (github.com/labstreaminglayer/App-LabRecorder, releases)
    and unzip it into `LabRecorder\`, so that `LabRecorder\LabRecorderCLI.exe` exists.
-4. Pair the PLUX hub in Windows Bluetooth settings. Then check it: `.venv\Scripts\python.exe plux_lsl.py --list`.
-5. Open the app and set **Devices** for this PC.
+4. Pair this site's PLUX hub in Windows Bluetooth settings. Then check it: `.venv\Scripts\python.exe plux_lsl.py --find`
+   shows its MAC, and `.venv\Scripts\python.exe plux_lsl.py --mac <MAC> --list` connects and prints the sensors.
+5. Open the app and set **Devices** for this PC. Click **Check signals** once: it finds the hub and remembers it
+   (**Hub:** line). If the sensors have no ID chip and the wiring is not belt 1 / ECG 2, set `"ports"` in `devices.json`.
 
 Recordings in `data\` stay out of git, except the researchers' own pilot recordings listed in `.gitignore`.
 
