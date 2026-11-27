@@ -48,8 +48,8 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    **Recording starts by itself** as soon as RRST is running (the app beeps and says
    *Recording started AUTOMATICALLY*); RRST waits until the recorder receives its triggers.
    Run the task as normal.
-   - If it doesn't start (red banner, e.g. flow sensor not connected): fix it, or click
-     **2 Start recording** to record without it.
+   - If it doesn't start (red banner, e.g. flow sensor not connected, Participant not filled in): fix it,
+     and recording starts by itself. Or click **2 Start manually** to record without the flow sensor.
 6. **Recording stops by itself** a few seconds after RRST finishes (*Recording stopped AUTOMATICALLY:
    RRST ended (session_end_...)*). Only if it doesn't stop: click **Stop recording**, then confirm.
 7. Check the **Last recording** panel: PASS / CHECK. `RRST triggers: N (k onsets)`: each trial sends
@@ -65,7 +65,8 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 5. **Start the effort task** (PsychoPy). **Recording starts by itself** as soon as the task is running
    (the app beeps and says *Recording started AUTOMATICALLY*); the task waits until the recorder receives
    its triggers. Run the task as normal. The state line counts the `EffortReward markers` as they come in.
-   - If it doesn't start (red banner): fix it, or click **2 Start recording**.
+   - If it doesn't start (red banner): fix what it says, and recording starts by itself. Or click
+     **2 Start manually**.
 6. **Recording stops by itself** a few seconds after the task finishes (*Recording stopped AUTOMATICALLY:
    EffortReward ended (task_end)*). Only if it doesn't stop: click **Stop recording**, then confirm.
 7. Check the **Last recording** panel: PASS / CHECK. `EffortReward triggers: N` should be well above 0;
@@ -88,13 +89,15 @@ Nonin backup), so the PLUX hub and sensors go on in both cases.
 5. Check the **Last recording** panel: PASS / CHECK, and `HRD triggers: N` above 0.
 
 Needs an HRD launcher that sends the `HRD` trigger stream; with an older launcher the recording does not
-start or stop by itself (click **2 Start recording** after HRD has started, **Stop recording** when it ends).
+start or stop by itself (click **2 Start manually** after HRD has started, **Stop recording** when it ends).
 
 **All three tasks:** the recording also stops by itself if the task crashes or is closed (its trigger
-stream gone for about 15 s): *Recording stopped AUTOMATICALLY: ... closed before it finished. Recording saved.* Note it and
-tell the researcher. If you click **2 Start recording** for a task that was already recorded for this
-participant and session, the app asks first (answer **No** unless you mean to repeat it). A repeat that
-starts by itself is recorded as a new file, and the banner says *REPEAT: ... was already recorded*.
+stream gone for about 15 s): *Recording stopped AUTOMATICALLY: ... closed before it finished. Recording
+saved.* Note it and tell the researcher. If you click **2 Start manually** for a task that was already
+recorded for this participant and session, the app asks first (answer **No** unless you mean to repeat
+it). A repeat that starts by itself is recorded without asking. Either way a repeat is a new file, and
+the banner names both files: *REPEAT: ... was already recorded at 10:12 (earlier file). This recording
+is a new file: ..._run-2_physio.xdf*.
 
 ## Devices on this PC
 
@@ -140,7 +143,10 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
   and `Not recording` otherwise.
 - The window never hides itself during a recording: the task runs on the participant screen, the app
   stays where it is.
-- The large banner below it says what to do next, or what is wrong.
+- The large banner below it says what to do next, or what is wrong. Important lines (a task that could
+  not start recording, *Recording stopped AUTOMATICALLY*, *REPEAT*) stay at the top of the banner until
+  they no longer apply, the next recording starts, or you change Participant, Session or Recording.
+- Participant, Session and Recording cannot be changed while a recording starts, runs or is saved.
 
 ## What the warnings mean
 
@@ -152,8 +158,9 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | `Recording stopped AUTOMATICALLY: RRST ended (session_end_...)` (or `HRD ended`, `EffortReward ended`) | Normal: the task sent its end marker; the recording went on 5 s more, then stopped. Check the summary. |
 | `Recording stopped AUTOMATICALLY: ... closed before it finished. Recording saved.` | The task closed or crashed without its end marker. The data up to then is saved. Note it and tell the researcher. A restarted task starts a new recording by itself. |
 | `... was already recorded at HH:MM (...). Record again as a new file?` | This participant, session and recording already has a file. **No** if you clicked Start by mistake; **Yes** to repeat it (saved as `_run-2`, `_run-3`, ...). |
-| `REPEAT: ... was already recorded` (banner) | The task was started again and recorded by itself as a new file. Fine if the repeat was intended; otherwise note it. |
-| `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
+| `REPEAT: ... was already recorded at ... This recording is a new file: ...` (banner) | This recording repeats an earlier one (confirmed by you, or the task was started again and recorded by itself). Both files are kept; note which is which in the session log. |
+| `<task> started - NOT RECORDING: fill in the form (...)` (red, top of the banner) | The task is running but the form is incomplete. Fill in Participant/Session: recording starts by itself a few seconds after you stop typing. |
+| `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start manually to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
 | `EffortReward triggers: 0` (summary) | The effort task was not running while recording, or was still at its first screen. |
 | `battery unknown: UNPLUG THE HUB FROM THE CHARGER ...` (hub line, red) | The hub is probably on the charger. Unplug it before sensors touch the participant; *Disconnect* and *Check signals* again, and the battery then shows. |
@@ -171,7 +178,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | Flow: `CONSTANT FLOW` | Air moving all the time: leak in the circuit or a draught. |
 | Flow: `NOT CONNECTED` / `SensorBridge not found` | USB cable, or close SEK-ControlCenter (only one program can use the bridge). Then *Retry flow sensor*. |
 | `Task triggers not found` (RRST) | RRST isn't running: start it in MATLAB; recording then starts by itself. |
-| `RRST is waiting for the recorder, but the flow sensor is not connected` | *Retry flow sensor* (USB cable, SEK-ControlCenter closed); recording then starts by itself. Or click Start recording to record without flow. |
+| `RRST is waiting for the recorder, but the flow sensor is not connected` | *Retry flow sensor* (USB cable, SEK-ControlCenter closed); recording then starts by itself. Or click Start manually to record without flow. |
 | `Dropped samples` > 0 | Bluetooth dropouts: keep the hub close to the laptop and charged. |
 
 ## For researchers
