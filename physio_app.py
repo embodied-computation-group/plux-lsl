@@ -59,6 +59,8 @@ TASK_RESOLVE_S = 3  # how often to look for the task's trigger stream while chec
 INSTRUCTIONS = ("Please sit comfortably and keep as still as you can.\n\n"
                 "Breathe normally and keep your eyes on the cross.\n\n"
                 "The researcher will tell you when it is finished.")
+START_REST = "2   Start recording"
+START_TASK = "2   Start manually (only if it did not start by itself)"  # tasks start recording by themselves
 FONT = ("Segoe UI", 11)
 BIG = ("Segoe UI", 14, "bold")
 
@@ -325,7 +327,7 @@ class App:
         buttons.pack(fill="x")
         self.btn_check = ttk.Button(buttons, text="1   Check signals", command=self.check_signals)
         self.btn_check.pack(side="left")
-        self.btn_record = ttk.Button(buttons, text="2   Start recording", command=self.start_recording,
+        self.btn_record = ttk.Button(buttons, text=START_REST, command=self.start_recording,
                                      state="disabled")
         self.btn_record.pack(side="left", padx=10)
         self.btn_disconnect = ttk.Button(buttons, text="Disconnect", command=self.disconnect, state="disabled")
@@ -363,6 +365,7 @@ class App:
             self.on_preset(None)
         for var in (self.sub, self.ses, self.recording):
             var.trace_add("write", self.on_form_change)
+        self.btn_record.config(text=self.start_text())
         root.after(200, self.tick)
 
     # ---------- form ----------
@@ -374,10 +377,15 @@ class App:
         for field in self.form_fields:
             field.config(state="normal" if enabled else "disabled")
 
+    def start_text(self):
+        preset = self.preset()
+        return START_TASK if preset and preset["markers"] else START_REST
+
     def on_form_change(self, *_):
         """Participant, session or recording edited (the entries are disabled while recording)."""
         if self.state in ("starting", "recording", "saving"):
             return
+        self.btn_record.config(text=self.start_text())
         if self.banner_note is not None:  # it was about the last recording
             self.banner_note = None
             self.set_banner(self.banner.cget("text").split("\n")[-1], self.banner.cget("fg"))
@@ -660,7 +668,7 @@ class App:
         preset = self.preset()
         if self.state == "checking" and preset and preset["markers"]:
             text += f"  |  {preset['markers']}: " + (
-                "running, already recorded (Start recording records it again)" if self.runs.current_recorded()
+                "running, already recorded (Start manually records it again)" if self.runs.current_recorded()
                 else "running" if self.runs.current else "not started yet")
         self.hub_status.config(text=text)
 
@@ -833,7 +841,7 @@ class App:
             if self.runs.is_new() and flow is not None \
                     and flow["status"] == "failed":  # task waiting, auto-start held back
                 self.set_banner(f"{self.task_name} is waiting for the recorder, but the flow sensor is not "
-                                "connected: click Retry flow sensor, or Start recording to record without it.", BAD)
+                                "connected: click Retry flow sensor, or Start manually to record without it.", BAD)
             drawn = False
             if mon is not None and mon.seconds_buffered >= 1:
                 draw(self.axes, mon, statuses)
@@ -1020,8 +1028,8 @@ class App:
             if not messagebox.askyesno(
                     "Task triggers not found",
                     f"The {needed} task's trigger stream was not found.\n\n"
-                    f"Start {needed} first (up to its first screen), then click Start recording, "
-                    "so its triggers are recorded.\n\nRecord without task triggers anyway?",
+                    f"Start {needed} first (up to its first screen): recording then starts by itself "
+                    "and its triggers are recorded.\n\nRecord without task triggers anyway?",
                     icon="warning", default="no"):
                 return
         self.task, self.minutes_value = task, minutes
@@ -1078,8 +1086,8 @@ class App:
             stops = ("It stops by itself when the task ends (click Stop recording if it doesn't)."
                      if self.auto_stop is not None else "Click Stop recording when the task ends.")
             if self.auto_reason:
-                self.set_banner(f"Recording started AUTOMATICALLY: {self.auto_reason} before Start recording "
-                                f"was clicked ({', '.join(names)}). {stops}", WARN)
+                self.set_banner(f"Recording started AUTOMATICALLY: {self.auto_reason}. {stops} "
+                                f"({', '.join(names)})", OK)
                 return
             self.set_banner(f"Recording ({', '.join(names)}). Run the task now. {stops}", OK)
             return
@@ -1207,7 +1215,7 @@ class App:
     def back_to_checking(self):
         self.recorder = None
         self.set_form_enabled(True)
-        self.btn_record.config(text="2   Start recording", command=self.start_recording)
+        self.btn_record.config(text=self.start_text(), command=self.start_recording)
         self.root.deiconify()
         if self.session_on:
             self.state = "checking"
