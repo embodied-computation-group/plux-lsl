@@ -4,6 +4,7 @@ Usage (from the plux-lsl folder):
     .venv\\Scripts\\python.exe plux_lsl.py                  # default hub, 1000 Hz, auto-detect sensors
     .venv\\Scripts\\python.exe plux_lsl.py --ports 1,2,3,4  # force ports (sensors without ID chips)
     .venv\\Scripts\\python.exe plux_lsl.py --list           # print detected sensors and exit
+    .venv\\Scripts\\python.exe plux_lsl.py --find           # list paired biosignalsplux hubs (their MACs)
 
 Stops cleanly on Ctrl+C. The stream carries raw ADC counts (int32), with the
 first channel being the hub's sample counter (nSeq) so dropped samples show
@@ -20,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor" / "plux"))
 
 import plux  # noqa: E402
+from devices import find_hubs  # noqa: E402
 import lsl_quiet  # noqa: E402,F401
 from pylsl import StreamInfo, StreamOutlet, cf_int32  # noqa: E402
 
@@ -184,13 +186,28 @@ def connect(args):
     return hub, sources, channels, properties
 
 
+def find():
+    """Print one 'MAC  description' line per biosignalsplux hub Windows knows (used by physio_app.py)."""
+    print("Looking for biosignalsplux hubs (Bluetooth) ...", file=sys.stderr, flush=True)
+    found = plux.BaseDev.findDevices("BTH")
+    print(f"PLUX devices found: {list(found)!r}", file=sys.stderr, flush=True)
+    hubs = find_hubs(found)
+    for mac, desc in hubs:
+        print(f"{mac}  {desc}", flush=True)
+    if not hubs:
+        print("No biosignalsplux hub found: pair it in Windows Bluetooth settings.", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_device_args(ap)
     ap.add_argument("--duration", type=float, help="stop after this many seconds (default: until Ctrl+C)")
     ap.add_argument("--stop-on-eof", action="store_true", help="also stop when stdin closes (used by physio_app.py)")
     ap.add_argument("--list", action="store_true", help="print detected sensors and battery, then exit")
+    ap.add_argument("--find", action="store_true", help="list paired biosignalsplux hubs (MAC  name), then exit")
     args = ap.parse_args()
+    if args.find:
+        return find()
 
     hub, sources, channels, properties = connect(args)
     try:
