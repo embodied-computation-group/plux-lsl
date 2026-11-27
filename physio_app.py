@@ -84,6 +84,15 @@ def find_hubs_now():
     return parse_hub_lines(out.stdout), None
 
 
+def battery_text(hub_log):
+    """(hub line text, colour) from plux_lsl.py's log. No battery level usually means the hub is on
+    the charger, which must never touch a participant: red, like a low battery."""
+    battery = re.search(r"Battery: (\d+)%", hub_log)
+    if battery is None:
+        return "battery unknown: UNPLUG THE HUB FROM THE CHARGER before sensors touch the participant", BAD
+    return f"battery {battery.group(1)}%", BAD if int(battery.group(1)) < 20 else "black"
+
+
 def label_to_task(text):
     if text in PRESETS:
         return PRESETS[text]["task"]
@@ -596,15 +605,13 @@ class App:
         self.session_on = True
         self.btn_record.config(state="normal")
         text = self.bridge_log.read_text(errors="replace")
-        battery = re.search(r"Battery: (\d+)%", text)
         chans = ", ".join(label for label, _ in self.monitor.channels)
-        bat = (f"battery {battery.group(1)}%" if battery else
-               "battery unknown (on the charger? unplug it before sensors go on)")
+        bat, bat_colour = battery_text(text)
         # sensors without an ID chip: plux_lsl.py says which sensor it assumes on which port
         no_chip = re.search(r"(?:No sensor ID chips found|Sensors without ID chip): assuming (.+)", text)
         note = f"  |  sensors have no ID chip, assuming {no_chip.group(1).strip()}" if no_chip else ""
         self.hub_status.config(text=f"Hub: connected, {bat}  |  channels: {chans}  |  {self.monitor.fs} Hz{note}",
-                               foreground=BAD if battery and int(battery.group(1)) < 20 else "black")
+                               foreground=bat_colour)
         self.hub_text = self.hub_status.cget("text")
         log.info("stream found: %s, %s%s", chans, bat, note)
         self.ensure_flow()

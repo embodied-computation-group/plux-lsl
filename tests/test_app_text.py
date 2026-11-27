@@ -16,6 +16,13 @@ def test_start_button_says_manual_for_tasks_only():
     assert start_text("pilotbreathing") == START_REST   # a typed label is a timed recording
 
 
+def test_battery_unknown_is_red_and_says_unplug_the_charger():
+    assert physio_app.battery_text("Connected\nBattery: 64%\n") == ("battery 64%", "black")
+    assert physio_app.battery_text("Battery: 12%") == ("battery 12%", physio_app.BAD)
+    assert physio_app.battery_text("Connected\n") == (
+        "battery unknown: UNPLUG THE HUB FROM THE CHARGER before sensors touch the participant", physio_app.BAD)
+
+
 def test_sticky_lines_stay_on_top_of_the_routine_banner():
     banner = types.SimpleNamespace(text=None, fg=None)
     fake = types.SimpleNamespace(banner=types.SimpleNamespace(config=lambda text, fg: banner.__dict__.update(

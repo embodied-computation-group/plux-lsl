@@ -12,7 +12,8 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 
 1. **Hub off the charger, then on.** Unplug the charger first: never put sensors on anyone, or record,
    while the hub is on the charger. Press the button on the biosignalsplux hub; its light blinks.
-   Battery shows in the app (`battery unknown` usually means it is still on the charger).
+   Battery shows in the app (a red `battery unknown: UNPLUG THE HUB FROM THE CHARGER ...` usually means
+   it is still on the charger).
 2. **Sensors on the participant.** Respiration belt around the lower chest, snug but comfortable.
    ECG electrodes on clean, dry skin, leads clipped on (see *ECG electrode placement* below):
    **red under the right collarbone, black on the lower left ribs, white on a bony spot** (left
@@ -155,7 +156,7 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
 | `EffortReward triggers: 0` (summary) | The effort task was not running while recording, or was still at its first screen. |
-| `battery unknown` (hub line) | The hub is probably on the charger. Unplug it before sensors go on anyone; the battery then shows. |
+| `battery unknown: UNPLUG THE HUB FROM THE CHARGER ...` (hub line, red) | The hub is probably on the charger. Unplug it before sensors touch the participant; *Disconnect* and *Check signals* again, and the battery then shows. |
 | `Could not connect to the hub 00:07:80:...` | Hub switched on? Charged? Within a few metres? OpenSignals closed? Is it **this PC's hub** (MAC on its label = the one shown)? If not, *Change*. Then *Check signals* again. |
 | `No PLUX hub found` | The hub is not paired with this PC: switch it on, pair it in Windows Bluetooth settings (see *Devices on this PC*), then *Check signals* again. Or *Change* and type the MAC from its label. |
 | `sensors have no ID chip, assuming ...` (hub line) | Normal for some sensors. Belt must be in port 1, ECG in port 2; a channel that stays `FLAT` is probably in the wrong port. |
