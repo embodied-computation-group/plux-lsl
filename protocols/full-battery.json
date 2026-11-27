@@ -35,7 +35,8 @@
         ["HRD > Participant (letters and digits)", "{participant}"],
         ["HRD > Session (letters and digits)", "{session}"],
         ["HRD > Heart signal from", "PLUX ECG (default)"],
-        ["HRD > Language", "english"]
+        ["HRD > Language", "english"],
+        ["HRD > Response device", "mouse"]
       ]
     },
     {
