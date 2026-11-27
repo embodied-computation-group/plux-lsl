@@ -32,7 +32,8 @@ from check_xdf import assess
 from devices import auto_hub, format_port_kinds, load_devices, normalize_mac, parse_hub_lines, save_devices
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
 from auto_stop import END_GRACE_S, AutoStop, is_end_marker
-from recorder import DATA_DIR, LOG_DIR, ROOT, output_path, start_recorder, stop_recorder
+from recorder import (DATA_DIR, LOG_DIR, ROOT, already_recorded_text, output_path, previous_recording,
+                      start_recorder, stop_recorder)
 from task_runs import TaskRuns
 
 # shown name -> file label; minutes (None = task: no fixation screen, runs until the task ends);
@@ -955,6 +956,16 @@ class App:
                 return
             messagebox.showerror("No data", "No data from the hub. Fix the connection first.")
             return
+        previous = previous_recording(DATA_DIR, sub, ses, task)
+        repeat = already_recorded_text(sub, ses, task, previous) if previous is not None else None
+        if repeat and auto:  # the task is already running: record (a new _run-N file) and warn
+            log.warning("%s: auto-start records it again as a new file", repeat)
+        elif repeat:
+            if not messagebox.askyesno("Already recorded", f"{repeat}. Record again as a new file?",
+                                       icon="warning", default="no"):
+                log.info("%s: RA chose not to record again", repeat)
+                return
+            log.info("%s: RA chose to record again as a new file", repeat)
         if bad and not auto and not messagebox.askyesno(
                 "Signals not all good", "These signals do not look good:\n\n" + "\n".join(bad) +
                 "\n\nFix them first if you can. Record anyway?", icon="warning", default="no"):
@@ -978,7 +989,8 @@ class App:
                          "count": 0, "last": None, "uid": None,
                          "end": preset.get("end") if preset and minutes is None else None,
                          "end_label": None, "end_t": None}
-        self.banner_note = None
+        self.banner_note = ((f"REPEAT: {repeat}. Recording it again as a new file ({self.path.name}).", WARN)
+                            if repeat and auto else None)
         self.clear_summary(note=f"Recording {self.path.name} ...")
         self.state = "starting"
         for b in (self.btn_record, self.btn_disconnect, self.btn_check):

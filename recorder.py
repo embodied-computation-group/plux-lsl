@@ -1,5 +1,7 @@
 """File naming and LabRecorderCLI control shared by record.py and physio_app.py."""
 
+import datetime
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -24,6 +26,24 @@ def output_path(out_dir, sub, ses, task):
         path = folder / f"{stem}_run-{run}_physio.xdf"
         run += 1
     return path
+
+
+def previous_recording(out_dir, sub, ses, task):
+    """The newest recording of sub/ses/task already in out_dir (the plain file or a _run-N one),
+    by modification time; None if there is none. Creates no folders."""
+    folder = Path(out_dir) / f"sub-{sub}" / f"ses-{ses}"
+    stem = f"sub-{sub}_ses-{ses}_task-{task}"
+    same = re.compile(rf"{re.escape(stem)}(_run-\d+)?_physio\.xdf")
+    found = [p for p in folder.glob(f"{stem}*_physio.xdf") if same.fullmatch(p.name)]
+    return max(found, key=lambda p: p.stat().st_mtime, default=None)
+
+
+def already_recorded_text(sub, ses, task, path, today=None):
+    """'sub-X ses-Y <task> was already recorded at HH:MM (<file name>)'; the date is added when the
+    file is not from today."""
+    when = datetime.datetime.fromtimestamp(Path(path).stat().st_mtime)
+    at = f"{when:%H:%M}" if when.date() == (today or datetime.date.today()) else f"{when:%Y-%m-%d %H:%M}"
+    return f"sub-{sub} ses-{ses} {task} was already recorded at {at} ({Path(path).name})"
 
 
 def start_recorder(path, console=True, optional=("Flow",), required=("PLUX",)):
