@@ -31,18 +31,24 @@ from pylsl import StreamInfo, StreamInlet, StreamOutlet, cf_string, local_clock,
 from check_xdf import assess
 from devices import auto_hub, format_port_kinds, load_devices, normalize_mac, parse_hub_lines, save_devices
 from monitor import BAD, OK, WARN, Monitor, draw, find_plux, find_stream
+from auto_stop import END_GRACE_S, AutoStop, is_end_marker
 from recorder import DATA_DIR, LOG_DIR, ROOT, output_path, start_recorder, stop_recorder
 from task_runs import TaskRuns
 
-# shown name -> file label; minutes (None = task: no fixation screen, runs until Stop);
-# the task's LSL marker stream that must be online before recording starts; and
-# whether the RRST airflow sensor ("Flow" stream) is expected.
+# shown name -> file label; minutes (None = task: no fixation screen, runs until the task ends);
+# the task's LSL marker stream that must be online before recording starts; whether the
+# RRST airflow sensor ("Flow" stream) is expected; and for tasks, the prefix of the task's
+# end marker (compared with the start of the marker's first word; the recording then stops
+# by itself, END_GRACE_S later).
 PRESETS = {
     "Rest - baseline": {"task": "restbaseline", "minutes": 15, "markers": None, "flow": False},
     "Rest - peak": {"task": "restpeak", "minutes": 15, "markers": None, "flow": False},
-    "RRST": {"task": "rrst", "minutes": None, "markers": "RRST", "flow": True},
-    "Effort task (dynamometer)": {"task": "effortreward", "minutes": None, "markers": "EffortReward", "flow": False},
-    "HRD": {"task": "hrd", "minutes": None, "markers": "HRD", "flow": False},
+    "RRST": {"task": "rrst", "minutes": None, "markers": "RRST", "flow": True,
+             "end": "session_end"},           # session_end_<status>
+    "Effort task (dynamometer)": {"task": "effortreward", "minutes": None, "markers": "EffortReward",
+                                  "flow": False, "end": "task_end"},     # task_end, task_end_early
+    "HRD": {"task": "hrd", "minutes": None, "markers": "HRD", "flow": False,
+            "end": "HRD_end"},                # HRD_end, HRD_end_early <reason>
 }
 LEAD_IN_S = 3        # recorder warm-up before the participant screen appears
 LOST_S = 10          # no data for this long during a window = connection lost
@@ -251,7 +257,9 @@ class App:
         self.task_resolving = False
         self.next_task_resolve = 0
         self.session_on = False  # Check signals done and not disconnected (with or without the hub)
-        self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last"} for the state line
+        self.rec_info = None    # {"sub", "ses", "since", "markers", "count", "last", ...}: state line, auto-stop
+        self.auto_stop = None   # AutoStop while a task with an end marker is recorded
+        self.banner_note = None  # (text, colour) kept on top of the banner until the next recording
         self.marker_stop = None  # threading.Event that stops the task-marker counter
         self.error_text, self.error_until = "", 0.0  # internal error note kept on the banner
         self.last_error, self.last_error_t = None, 0.0
@@ -356,7 +364,7 @@ class App:
         if preset["minutes"] is None:
             self.minutes.set("")
             self.min_box.config(state="disabled")
-            self.min_note.config(text=f"runs until Stop. Start {preset['markers']} first.")
+            self.min_note.config(text=f"stops when the task ends. Start {preset['markers']} first.")
         else:
             self.minutes.set(str(preset["minutes"]))
             self.min_box.config(state="normal")
@@ -668,6 +676,7 @@ class App:
         self.btn_disconnect.config(state="disabled")
         self.hub_text = "Hub: not connected"
         self.hub_status.config(text=self.hub_text, foreground="black")
+        self.banner_note = None
         self.set_banner("Disconnected.", "black")
         self.fig.clear()
         self.canvas.draw_idle()
@@ -706,9 +715,10 @@ class App:
             self.state_line.config(text=text, fg=colour)
 
     def start_marker_count(self, name):
-        """Count the task's markers while it is recorded, for the state line. An inlet is fine now
-        (the recorder is already connected); never open one while checking: it would look like a
-        recorder to the task."""
+        """Count the task's markers while it is recorded, for the state line, and watch for the
+        task's end marker (prefix info["end"]). An inlet is fine now (the recorder is already
+        connected); never open one while checking: it would look like a recorder to the task.
+        Runs in a thread: it only writes to info; _tick reads info["end_t"] (no Tk calls here)."""
         stop, info = threading.Event(), self.rec_info
 
         def run():
@@ -718,12 +728,17 @@ class App:
                     if inlet is None:
                         found = resolve_byprop("name", name, timeout=1.0)
                         if found:
-                            inlet = StreamInlet(max(found, key=lambda i: i.created_at()))
+                            newest = max(found, key=lambda i: i.created_at())
+                            info["uid"] = newest.uid()
+                            inlet = StreamInlet(newest)
                         continue
                     sample, _ = inlet.pull_sample(timeout=0.5)
                     if sample:
                         info["count"] += 1
                         info["last"] = sample[0]
+                        if info["end_t"] is None and is_end_marker(sample[0], info["end"]):
+                            info["end_label"] = sample[0]
+                            info["end_t"] = time.monotonic()  # set last: _tick checks this one
             except Exception:
                 log.exception("marker counter failed")
             finally:
@@ -765,6 +780,8 @@ class App:
         flow_rows = self.flow_statuses()
         self.last_statuses = statuses + flow_rows
         self.watch_task()
+        if self.state == "recording" and self.check_auto_stop():
+            return
         if self.state == "recording":
             if self.end_seq is not None and mon.last_seq >= self.end_seq:
                 self.finish(f"{self.task}_end")
@@ -842,6 +859,32 @@ class App:
             log.info("task trigger stream %s (%s, %s)", "found" if uid else "gone", self.state,
                      "already recorded" if self.runs.current_recorded() else "new run" if uid else "-")
             self.update_hub_text()
+        if self.auto_stop is not None and self.state == "recording" and self.rec_info \
+                and name == self.rec_info["markers"]:
+            self.auto_stop.resolved(self.runs.current_recorded(), time.monotonic())
+
+    def check_auto_stop(self):
+        """While a task is recorded: stop by itself END_GRACE_S after the task's end marker, or when
+        the recorded run's trigger stream has been gone for a while (task crashed or closed).
+        Returns True if it stopped. The Stop button stays as a manual override."""
+        stopper, info = self.auto_stop, self.rec_info
+        if stopper is None or info is None:
+            return False
+        if info["end_t"] is not None and stopper.end_t is None:
+            stopper.ended(info["end_label"], info["end_t"])
+            log.info("%s end marker %r: stopping in %s s", info["markers"], info["end_label"], END_GRACE_S)
+            self.set_banner(f"{info['markers']} ended ({info['end_label']}): the recording stops by itself "
+                            f"in {END_GRACE_S} s ...", OK)
+        reason = stopper.reason(time.monotonic())
+        if reason is None:
+            return False
+        text = f"Recording stopped AUTOMATICALLY: {info['markers']} {reason}"
+        log.info(text)
+        if stopper.end_t is not None and info.get("uid"):
+            self.runs.mark_recorded(info["uid"])  # the run that ended is not auto-started again
+        self.banner_note = (text, OK if stopper.end_t is not None else WARN)
+        self.finish(f"{self.task}_end")
+        return True
 
     def mark_recorded(self, name):
         """Background, at recording start: every run of the task online now is in this recording."""
@@ -849,6 +892,11 @@ class App:
         self.root.after(0, lambda: self.runs.mark_recorded(*uids))
 
     def set_banner(self, text, colour):
+        if self.banner_note is not None:  # e.g. "Recording stopped AUTOMATICALLY", kept on top
+            note, note_colour = self.banner_note
+            text = f"{note}\n{text}"
+            if note_colour == WARN and colour != BAD:
+                colour = WARN
         if time.monotonic() < self.error_until:  # an internal error stays on top for a while
             text, colour = f"{self.error_text}\n{text}", BAD
         self.banner.config(text=text, fg=colour)
@@ -927,7 +975,10 @@ class App:
         self.expect_plux = self.monitor is not None
         self.path = output_path(DATA_DIR, sub, ses, task)
         self.rec_info = {"sub": sub, "ses": ses, "since": None, "markers": needed if minutes is None else None,
-                         "count": 0, "last": None}
+                         "count": 0, "last": None, "uid": None,
+                         "end": preset.get("end") if preset and minutes is None else None,
+                         "end_label": None, "end_t": None}
+        self.banner_note = None
         self.clear_summary(note=f"Recording {self.path.name} ...")
         self.state = "starting"
         for b in (self.btn_record, self.btn_disconnect, self.btn_check):
@@ -964,12 +1015,13 @@ class App:
             self.btn_record.config(text="Stop recording", command=self.stop_task, state="normal")
             # This window stays where it is (the task runs on the participant screen): hiding it
             # looked like a crash. The state line above shows the recording is alive.
+            stops = ("It stops by itself when the task ends (click Stop recording if it doesn't)."
+                     if self.auto_stop is not None else "Click Stop recording when the task ends.")
             if self.auto_reason:
                 self.set_banner(f"Recording started AUTOMATICALLY: {self.auto_reason} before Start recording "
-                                f"was clicked ({', '.join(names)}). Click Stop recording when the task ends.", WARN)
+                                f"was clicked ({', '.join(names)}). {stops}", WARN)
                 return
-            self.set_banner(f"Recording ({', '.join(names)}). Run the task now; "
-                            "click Stop recording here when it ends.", OK)
+            self.set_banner(f"Recording ({', '.join(names)}). Run the task now. {stops}", OK)
             return
         self.set_banner("Participant screen is up. Press Space on it to start the window "
                         "(Esc twice, then Y, stops early).", WARN)
@@ -986,6 +1038,7 @@ class App:
         if self.rec_info is not None:
             self.rec_info["since"] = datetime.datetime.now()
             if self.rec_info["markers"]:
+                self.auto_stop = AutoStop() if self.rec_info["end"] else None
                 self.start_marker_count(self.rec_info["markers"])
 
     def stop_task(self):
@@ -1018,6 +1071,7 @@ class App:
                  f", {info['count']} {info['markers']} markers seen, last {info['last']}" if info.get("markers")
                  else "")
         self.stop_marker_count()
+        self.auto_stop = None
         self.state = "saving"
         if self.screen is not None:
             self.screen.finished()

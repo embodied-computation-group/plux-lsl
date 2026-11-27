@@ -20,6 +20,7 @@ def test_rrst_keeps_its_own_check():
 def test_effort_preset_is_a_task_with_its_marker_stream_and_no_flow():
     import physio_app
     preset = physio_app.PRESETS["Effort task (dynamometer)"]
-    assert preset == {"task": "effortreward", "minutes": None, "markers": "EffortReward", "flow": False}
+    assert preset == {"task": "effortreward", "minutes": None, "markers": "EffortReward", "flow": False,
+                      "end": "task_end"}
     assert physio_app.label_to_task("Effort task (dynamometer)") == "effortreward"
     assert "effortreward" not in physio_app.FIGURES
