@@ -1051,8 +1051,8 @@ class App:
         log.info("%s_start at nSeq %s", self.task, self.start_seq)
         if self.rec_info is not None:
             self.rec_info["since"] = datetime.datetime.now()
+            self.auto_stop = AutoStop() if self.rec_info["markers"] and self.rec_info["end"] else None
             if self.rec_info["markers"]:
-                self.auto_stop = AutoStop() if self.rec_info["end"] else None
                 self.start_marker_count(self.rec_info["markers"])
 
     def stop_task(self):
