@@ -24,6 +24,9 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    - Every channel title should turn **green** (e.g. `ECG2 HR 68 bpm`, `RESP1 14 breaths/min`).
    - Amber or red means fix it first. See *What the warnings mean* below.
 6. Click **2 Start recording**. The screen turns grey with instructions for the participant.
+   - If this participant, session and recording were already recorded, the app first asks
+     *... was already recorded at HH:MM (file). Record again as a new file?* **No** unless you mean to
+     repeat it (a repeat is saved as a new `_run-2` file, never over the first).
 7. Read or explain the instructions, then **press Space**. A fixation cross shows for 15 minutes.
    - To stop early: press **Esc twice**, then **Y**.
 8. When it says *Finished*, check the **Last recording** panel on the right:
@@ -46,7 +49,8 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    Run the task as normal.
    - If it doesn't start (red banner, e.g. flow sensor not connected): fix it, or click
      **2 Start recording** to record without it.
-6. When RRST has finished, click **Stop recording** in Physio Recorder, then confirm.
+6. **Recording stops by itself** a few seconds after RRST finishes (*Recording stopped AUTOMATICALLY:
+   RRST ended (session_end_...)*). Only if it doesn't stop: click **Stop recording**, then confirm.
 7. Check the **Last recording** panel: PASS / CHECK. `RRST triggers: N (k onsets)`: each trial sends
    about 9 triggers, 2 of them onsets (one per breath). The pilot's 100 trials give about 900 triggers
    and 200 onsets, plus a few more for repeated trials. A shorter or aborted run gives fewer.
@@ -61,7 +65,8 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
    (the app beeps and says *Recording started AUTOMATICALLY*); the task waits until the recorder receives
    its triggers. Run the task as normal. The state line counts the `EffortReward markers` as they come in.
    - If it doesn't start (red banner): fix it, or click **2 Start recording**.
-6. When the task has finished, click **Stop recording** in Physio Recorder, then confirm.
+6. **Recording stops by itself** a few seconds after the task finishes (*Recording stopped AUTOMATICALLY:
+   EffortReward ended (task_end)*). Only if it doesn't stop: click **Stop recording**, then confirm.
 7. Check the **Last recording** panel: PASS / CHECK. `EffortReward triggers: N` should be well above 0;
    `0`, or no `EffortReward` line at all, means the task's triggers were not recorded: note it and tell
    the researcher.
@@ -77,11 +82,18 @@ Nonin backup), so the PLUX hub and sensors go on in both cases.
    until every channel title is **green**.
 3. Open **HRD** (desktop shortcut), fill in its dialog. **Recording starts by itself** when HRD starts
    (the app beeps and says *Recording started AUTOMATICALLY*). Run the task as normal.
-4. When HRD has finished, click **Stop recording** in Physio Recorder, then confirm.
+4. **Recording stops by itself** a few seconds after HRD finishes (*Recording stopped AUTOMATICALLY:
+   HRD ended (HRD_end)*). Only if it doesn't stop: click **Stop recording**, then confirm.
 5. Check the **Last recording** panel: PASS / CHECK, and `HRD triggers: N` above 0.
 
 Needs an HRD launcher that sends the `HRD` trigger stream; with an older launcher the recording does not
-start by itself (click **2 Start recording** after HRD has started instead).
+start or stop by itself (click **2 Start recording** after HRD has started, **Stop recording** when it ends).
+
+**All three tasks:** the recording also stops by itself if the task crashes or is closed (its trigger
+stream gone for about 15 s): *Recording stopped AUTOMATICALLY: ... trigger stream gone*. Note it and
+tell the researcher. If you click **2 Start recording** for a task that was already recorded for this
+participant and session, the app asks first (answer **No** unless you mean to repeat it). A repeat that
+starts by itself is recorded as a new file, and the banner says *REPEAT: ... was already recorded*.
 
 ## Devices on this PC
 
@@ -123,8 +135,8 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 
 - The line under the hub status says what is happening, at a glance:
   `RECORDING sub-01 ses-1 since 10:39 (4:12), 57 RRST markers, last: trial_5_go` while a task is recorded
-  (the time ticks; the marker count grows as the task runs), `SAVING the recording ...` after Stop, and
-  `Not recording` otherwise.
+  (the time ticks; the marker count grows as the task runs), `SAVING the recording ...` after it stops,
+  and `Not recording` otherwise.
 - The window never hides itself during a recording: the task runs on the participant screen, the app
   stays where it is.
 - The large banner below it says what to do next, or what is wrong.
@@ -135,7 +147,11 @@ wires differently: the researcher sets `"ports"` in `devices.json`, e.g. `"ports
 |---|---|
 | The Physio Recorder window seems to have vanished | It does not close or hide itself during a recording. Look on the taskbar / the other screen (it may be behind the task). The state line says whether it is still recording. |
 | `Internal error: see logs\app_<date>-<time>.log` (banner) | Something unexpected went wrong inside the app; the details are in that log. Recording usually goes on: check the state line, then tell the researcher and send the log. |
-| `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Stop, and the new task run is picked up (recording restarts by itself). |
+| `RECORDING ..., 0 RRST markers, last: none yet` for minutes | The task is not sending triggers: is it waiting at a prompt in MATLAB? Was it restarted after the recording started? Then the recording stops by itself about 20 s later and the new task run starts recording by itself; if not, Stop, and the new run is picked up. |
+| `Recording stopped AUTOMATICALLY: RRST ended (session_end_...)` (or `HRD ended`, `EffortReward ended`) | Normal: the task sent its end marker; the recording went on 5 s more, then stopped. Check the summary. |
+| `Recording stopped AUTOMATICALLY: ... trigger stream gone` | The task closed or crashed without its end marker. The data up to then is saved. Note it and tell the researcher. A restarted task starts a new recording by itself. |
+| `... was already recorded at HH:MM (...). Record again as a new file?` | This participant, session and recording already has a file. **No** if you clicked Start by mistake; **Yes** to repeat it (saved as `_run-2`, `_run-3`, ...). |
+| `REPEAT: ... was already recorded` (banner) | The task was started again and recorded by itself as a new file. Fine if the repeat was intended; otherwise note it. |
 | `RRST: running, already recorded` (hub line) | This task run was already recorded, then stopped. Click Start recording to record it again, or restart the task (a new run starts recording by itself). |
 | `RRST: no task markers recorded` (summary) | The task was not running while recording, or was still waiting at its start prompt. |
 | `EffortReward triggers: 0` (summary) | The effort task was not running while recording, or was still at its first screen. |
