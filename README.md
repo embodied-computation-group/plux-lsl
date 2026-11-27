@@ -8,6 +8,98 @@ Data: `plux-lsl\data\sub-<ID>\ses-<N>\sub-<ID>_ses-<N>_task-<recording>_physio.x
 
 ---
 
+## Session Runner (the whole session, step by step)
+
+A second, small window that walks you through the session in this site's order and opens each task
+for you. It does **not** record anything and does not control the Physio Recorder: keep the Physio
+Recorder open beside it (it starts and stops recording by itself, as in the checklists below). The
+checklists below have the details for each task.
+
+Open **Session Runner** (desktop shortcut, or `windows\session_runner.bat`).
+
+**Screen 1: New session.**
+1. **Site**: this laptop's site (usually already picked).
+2. **RA initials** (2 to 4 letters), **Participant ID** (letters and digits only, no dashes or spaces),
+   **Session number** (1, 2, ...; type `1`, not `01`).
+3. Click **Next**, check the summary, click **Yes**. A red line under the fields says what to fix.
+
+From now on the participant, session and your initials are shown at the top of every screen.
+
+**Screen 2: Device check.** One light per device this site needs:
+- **Physio Recorder is open**: open it from the desktop if red.
+- **RRST device (USB)** and **Flow sensor SensorBridge (USB)**: plug in the USB cable if red.
+
+Fix a red light, then **Check again**. **Continue** works only when all are green. If a device is
+really not needed today, **Continue anyway** asks for a one-line reason, which goes into the session log.
+
+**Screen 3, 4, ...: one screen per step** (e.g. *Step 2 of 4: HRD*).
+1. Read the instructions. Do what the tick boxes say and tick each one; **Start** stays grey until all
+   are ticked.
+2. The yellow box says **what to type into the task when it asks** (and what to pick in the Physio
+   Recorder). Type exactly that.
+3. Click **Start**. The task opens (for the resting recording nothing opens: you start it in the Physio
+   Recorder). The Session Runner stays usable while the task runs.
+   - *Could not start the task* (or a red line on the screen saying the launch target is not set up):
+     open the task from its desktop shortcut, then click **Yes**; the log notes it was opened by hand.
+     Tell the researcher.
+4. When the task has finished and the Physio Recorder shows PASS, click **Done**: the next step opens.
+   - Something went wrong: click **Problem...** and type one line. Then **Start again (repeat)** once it
+     is fixed (it asks first, and is logged as a repeat), or **Next step** to go on.
+   - Not doing this step today: **Skip step...** asks for a reason.
+   - **Back** goes to the previous step (to repeat it, for example).
+
+**Last screen: Session finished.** A table of every step: done, skipped or problem, attempts, times
+and notes. A red line means some steps were not done: tell the researcher. **Close** when finished.
+
+Closing the window early asks first; the log so far is kept, and tasks that are running keep running.
+`DEMO MODE` at the top means nothing real is opened (every Start opens Notepad); never use it with a
+participant.
+
+The session log (plain text and JSON) is in `plux-lsl\logs\session_runner\`, one pair per session:
+`session-runner_sub-<ID>_ses-<N>_<date>-<time>.txt` / `.json`. It lists every click with its time:
+device check, Start, repeats, Done, problems, skips. If the top of the screen turns red with *SESSION
+LOG NOT SAVED*, write things down on paper and tell the researcher.
+
+### Session Runner: protocol files (researchers)
+
+One file per site in `protocols\` (`maastricht.json`, `zurich.json`, `boris.json`). Keys starting with
+`_` are notes and are ignored; any other unknown key is an error (catches typos).
+
+```json
+{
+  "site": "Zurich",
+  "order_status": "Step order PROVISIONAL - confirm with Micah",
+  "log_dir": "logs/session_runner",
+  "devices": ["physio_recorder", "rrst_teensy", "sensorbridge"],
+  "steps": [
+    {
+      "id": "hrd",
+      "title": "HRD (heart rate discrimination)",
+      "instructions": "In the Physio Recorder pick HRD, ... Then press Start here: HRD opens. ...",
+      "prompts": ["Physio Recorder: HRD picked, every channel title green"],
+      "launch": {"open": "C:\\Users\\Public\\Desktop\\HRD.lnk"},
+      "type_into_task": [["HRD > Participant", "{participant}"], ["HRD > Session", "{session}"]]
+    }
+  ]
+}
+```
+
+- `devices`: any of `physio_recorder` (a window titled *Physio Recorder*), `rrst_teensy` (USB
+  16C0:0483), `sensorbridge` (USB 0403:7168). Read-only checks.
+- `launch`: `null` (nothing to open), `{"open": "<path>"}` (a `.lnk`, `.bat` or `.exe`, opened as a
+  double-click would), or `{"command": ["<program>", "arg", ...], "cwd": "<folder>"}`. `%VARS%` such
+  as `%PUBLIC%` are expanded. A value containing `FILL IN` is a placeholder: the step shows a red line
+  and the RA opens the task by hand.
+- `type_into_task`: `[what the task asks, value]` pairs; `{participant}`, `{session}`, `{initials}` are
+  replaced by what the RA entered.
+- `log_dir`: relative to the plux-lsl folder (default `logs/session_runner`); never inside a `data` folder.
+- `.venv\Scripts\python.exe session_runner.py --check zurich`: no window; lists each step's launch
+  target as `ok` or `TODO` (placeholder or missing file). Run it on every laptop after setting up.
+- `windows\session_runner.bat zurich` opens with the site picked; `windows\session_runner.bat --demo`
+  opens the demo (every Start opens Notepad, log names end in `_demo`).
+
+---
+
 ## RA checklist: resting recording (15 min, baseline or peak)
 
 1. **Hub off the charger, then on.** Unplug the charger first: never put sensors on anyone, or record,
