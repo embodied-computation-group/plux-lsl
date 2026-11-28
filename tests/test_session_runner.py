@@ -192,6 +192,34 @@ def test_bare_shortcut_name_is_looked_up_on_the_users_desktop(tmp_path, monkeypa
     assert sr.resolve_open("%TASKS%\\task.bat") == str(tmp_path / "elsewhere") + "\\task.bat"
 
 
+def test_url_shortcut_on_the_desktop_works_like_a_lnk(tmp_path, monkeypatch, capsys):
+    """A web task opened from a Desktop internet shortcut (.url): found, checked and opened as a .lnk is."""
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    name = "Task 2 (web).url"
+    launch = {"open": name}
+    raw = protocol_raw(log_dir=str(tmp_path / "logs"),
+                       steps=[dict(STEP, id="task2", title="Task 2", prompts=[], type_into_task=[], launch=launch)])
+    assert sr.validate_protocol(raw, tmp_path)["steps"][0]["launch"] == launch
+    path = write(tmp_path, "web", raw)
+    target = tmp_path / "Desktop" / name
+    assert sr.resolve_open(name) == str(target)
+    assert sr.launch_problem(launch) == (f"Cannot find {target}. Open the task from its desktop shortcut instead, "
+                                         "and tell the researcher.")
+    assert sr.main(["--check", str(path)]) == 1
+    assert f"TODO  task2: {target}" in capsys.readouterr().out
+    opened = []
+    monkeypatch.setattr(sr.os, "startfile", opened.append, raising=False)
+    with pytest.raises(OSError, match="Cannot find"):
+        sr.start_launch(launch)
+    (tmp_path / "Desktop").mkdir()
+    target.write_text("[InternetShortcut]\nURL=https://example.org/task2\n")
+    assert sr.launch_problem(launch) is None
+    assert sr.main(["--check", str(path)]) == 0
+    assert f"ok    task2: {target}" in capsys.readouterr().out
+    sr.start_launch(launch)
+    assert opened == [str(target)]   # os.startfile: the default browser opens the shortcut's address
+
+
 def test_start_launch_refuses_a_missing_target(tmp_path):
     with pytest.raises(OSError, match="Cannot find"):
         sr.start_launch({"open": str(tmp_path / "missing.lnk")})

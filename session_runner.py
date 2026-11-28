@@ -228,8 +228,9 @@ def desktop():
 
 
 def resolve_open(value):
-    """An "open" value: a bare file name ("HRD (Heart Rate Discrimination).lnk") is looked up on the current
-    user's Desktop; a path (with a folder) is used as it is. %VARS% are expanded."""
+    """An "open" value: a bare file name ("HRD (Heart Rate Discrimination).lnk", or a web task's internet
+    shortcut "Task.url") is looked up on the current user's Desktop; a path (with a folder) is used as it is.
+    %VARS% are expanded."""
     value = os.path.expandvars(value)
     return value if os.path.dirname(value) else os.path.join(desktop(), value)
 
@@ -262,7 +263,7 @@ def start_launch(launch):
     if problem:
         raise OSError(problem)
     if "open" in launch:
-        os.startfile(resolve_open(launch["open"]))   # .lnk, .bat, .exe: as a double-click would
+        os.startfile(resolve_open(launch["open"]))   # .lnk, .url, .bat, .exe: as a double-click would
         return
     cmd = [os.path.expandvars(c) for c in launch["command"]]
     cwd = os.path.expandvars(launch["cwd"]) if launch.get("cwd") else None
