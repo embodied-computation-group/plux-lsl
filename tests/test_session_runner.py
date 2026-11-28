@@ -312,6 +312,64 @@ def test_unwritable_log_is_reported_not_raised(tmp_path):
     assert s.step("hrd")["status"] == "started"
 
 
+def four_step_session(tmp_path):
+    steps = [dict(STEP, id=sid, title=sid.upper(), launch=None) for sid in ("rest", "hrd", "rrst", "effort")]
+    p = sr.validate_protocol(protocol_raw(log_dir=str(tmp_path / "logs"), steps=steps), tmp_path)
+    p["file"] = "test.json"
+    return sr.Session(p, {"initials": "JD", "participant": "0123", "session": "2"}, now=Clock())
+
+
+def test_goto_is_logged_only_when_out_of_order(tmp_path):
+    s = four_step_session(tmp_path)
+    assert s.goto("rest", "rrst") is True           # forward past a step
+    assert s.goto("rrst", "hrd") is False           # the previous step: what Back does
+    assert s.goto("hrd", "rrst") is True            # the next step, but hrd is not finished (Next is grey)
+    s.start("rrst")
+    s.done("rrst")
+    assert s.goto("rrst", "effort") is False        # the next step after Done: what Next step does
+    assert s.goto("effort", "effort") is False      # the step already shown
+    assert s.goto("effort", "rest") is True         # back to the start
+    gotos = [e for e in s.events if e["event"] == "GOTO"]
+    assert [(e["step"], e["text"]) for e in gotos] == [
+        ("rrst", "opened out of order: from step 1 (rest, not started) to step 3 (rrst)"),
+        ("rrst", "opened out of order: from step 2 (hrd, not started) to step 3 (rrst)"),
+        ("rest", "opened out of order: from step 4 (effort, not started) to step 1 (rest)")]
+    assert "GOTO     [rrst] opened out of order: from step 1 (rest" in s.txt_path.read_text(encoding="utf-8")
+
+
+def test_summary_after_steps_in_any_order(tmp_path):
+    s = four_step_session(tmp_path)
+    s.goto("rest", "rrst")
+    s.start("rrst")
+    s.done("rrst")
+    s.goto("rrst", "hrd")
+    s.start("hrd")
+    s.goto("hrd", "effort")   # hrd left running, effort skipped, rest never opened
+    s.skip("effort", "no dynamometer")
+    assert s.run_order() == ["rrst", "hrd"]
+    assert s.open_steps() == [("rest", "not started"), ("hrd", "started")]
+    assert s.completion() == "end screen with steps not finished: rest (not started), hrd (started)"
+    s.finish(s.completion())
+    rows = s.summary()
+    assert [r[:3] for r in rows] == [("REST", "not started", 0), ("HRD", "started", 1), ("RRST", "done", 1),
+                                    ("EFFORT", "skipped", 0)]   # protocol order, real statuses
+    assert rows[0][3:5] == ("", "") and rows[1][4] == ""         # never visited / never ended: no times
+    assert rows[2][3] < rows[1][3]                                 # rrst (step 3) ran before hrd (step 2)
+    data = json.loads(s.json_path.read_text(encoding="utf-8"))
+    assert data["run_order"] == ["rrst", "hrd"]
+    assert data["end_reason"].startswith("end screen with steps not finished: rest")
+
+
+def test_completion_when_every_step_is_finished(tmp_path):
+    s = four_step_session(tmp_path)
+    for sid in ("effort", "rest", "rrst"):
+        s.start(sid)
+        s.done(sid)
+    s.skip("hrd", "participant tired")
+    assert s.open_steps() == [] and s.completion() == "completed: all steps shown"
+    assert s.run_order() == ["effort", "rest", "rrst"]
+
+
 def test_error_file_goes_to_the_log_folder(tmp_path):
     where = sr.write_error("Traceback ...", tmp_path / "logs")
     assert where == str(tmp_path / "logs" / "session-runner_errors.txt")

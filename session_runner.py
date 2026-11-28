@@ -40,6 +40,7 @@ DEVICES = {
 PHYSIO_TITLE = "Physio Recorder"   # physio_app.py's window title
 
 NOT_STARTED, STARTED, DONE, PROBLEM, SKIPPED = "not started", "started", "done", "problem", "skipped"
+FINISHED = (DONE, PROBLEM, SKIPPED)   # the RA has dealt with the step (Next step is allowed)
 STEP_KEYS = {"id", "title", "instructions", "prompts", "launch", "type_into_task"}
 TOP_KEYS = {"name", "order_status", "log_dir", "devices", "participant_digits_only", "steps"}
 
@@ -369,6 +370,36 @@ class Session:
     def step(self, step_id):
         return next(s for s in self.steps if s["id"] == step_id)
 
+    def position(self, step_id):
+        """0-based place of a step in the protocol's order."""
+        return next(i for i, s in enumerate(self.steps) if s["id"] == step_id)
+
+    def goto(self, from_id, to_id):
+        """The RA opened a step from the step list instead of with Next / Back. Logged as GOTO unless it is
+        what Back (the previous step) or Next step (the next one, once this step is finished) would have
+        done. Returns True when logged."""
+        i, j = self.position(from_id), self.position(to_id)
+        if j == i or j == i - 1 or (j == i + 1 and self.step(from_id)["status"] in FINISHED):
+            return False
+        self.event("GOTO", to_id, f"opened out of order: from step {i + 1} ({from_id}, "
+                                  f"{self.step(from_id)['status']}) to step {j + 1} ({to_id})")
+        return True
+
+    def open_steps(self):
+        """(id, status) of the steps not finished yet: never started, or started without Done / Problem / Skip."""
+        return [(s["id"], s["status"]) for s in self.steps if s["status"] not in FINISHED]
+
+    def run_order(self):
+        """Step ids in the order they were first started (the protocol's order is only the default)."""
+        return [e["step"] for e in self.events if e["event"] == "START"]
+
+    def completion(self):
+        """The end reason for the end screen: says which steps are not finished, whatever order they ran in."""
+        missing = self.open_steps()
+        if not missing:
+            return "completed: all steps shown"
+        return "end screen with steps not finished: " + ", ".join(f"{sid} ({status})" for sid, status in missing)
+
     def event(self, kind, step_id, text):
         t = self.now()
         self.events.append({"time": t.isoformat(), "event": kind, "step": step_id, "text": text})
@@ -468,7 +499,7 @@ class Session:
                 "order_status": p.get("order_status"),
                 "demo": self.demo, **self.who, "started": self.started.isoformat(),
                 "ended": self.ended.isoformat() if self.ended else None, "end_reason": self.end_reason,
-                "devices": self.devices, "steps": self.steps, "events": self.events}
+                "devices": self.devices, "run_order": self.run_order(), "steps": self.steps, "events": self.events}
 
 
 # ---------------------------------------------------------------- command-line check (no window)
