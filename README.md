@@ -51,9 +51,14 @@ really not needed today, **Continue anyway** asks for a one-line reason, which g
      is fixed (it asks first, and is logged as a repeat), or **Next step** to go on.
    - Not doing this step today: **Skip step...** asks for a reason.
    - **Back** goes to the previous step (to repeat it, for example).
+5. **All steps** (the list on the left) shows every step with its status: *not started*, *started*,
+   *done*, *problem* or *skipped*; the step on screen is highlighted. Click any step to open it, in any
+   order (for example when today's order differs from the protocol's). **Next step** and **Done** still
+   go to the step below it in the list. Opening a step out of order is logged (`GOTO`).
 
 **Last screen: Session finished.** A table of every step: done, skipped or problem, attempts, times
-and notes. A red line means some steps were not done: tell the researcher. **Close** when finished.
+and notes, and the order the steps were started in. A step never opened shows *not started*. A red line
+means some steps were not done: tell the researcher. **Close** when finished.
 
 Closing the window early asks first; the log so far is kept, and tasks that are running keep running.
 `DEMO MODE` at the top means nothing real is opened (every Start opens Notepad); never use it with a

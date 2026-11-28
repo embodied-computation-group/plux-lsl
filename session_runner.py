@@ -5,7 +5,8 @@ Start it from windows\\session_runner.bat [protocol], or:
     .venv\\Scripts\\python.exe session_runner.py --check full-battery   (no window: list what is not set up)
 
 Screens: start (RA initials, participant, session) -> device check -> one screen per protocol step
-(instructions, tick boxes, Start opens the task, Done / Problem) -> end summary. It does not control the
+(instructions, tick boxes, Start opens the task, Done / Problem; a list of all steps on the left opens any of
+them, so the protocol's order is only the default) -> end summary. It does not control the
 Physio Recorder (that starts and stops recording by itself) and never passes anything to the tasks: it
 shows what to type. Session log (text + JSON) per session in the protocol's log_dir.
 """
@@ -536,8 +537,13 @@ FONT = ("Segoe UI", 12)
 BOLD = ("Segoe UI", 12, "bold")
 BIG = ("Segoe UI", 18, "bold")
 HUGE = ("Segoe UI", 20, "bold")
+SMALL = ("Segoe UI", 10)
+SMALL_BOLD = ("Segoe UI", 10, "bold")
 GREEN, RED, GREY, AMBER = "#1a7f37", "#c62828", "#666666", "#b26a00"
 TYPE_BG = "#fff6cc"
+CURRENT_BG = "#d6e4f5"
+STATUS_FG = {NOT_STARTED: "black", STARTED: AMBER, DONE: GREEN, PROBLEM: RED, SKIPPED: GREY}
+STEP_LIST_WIDTH = 230   # the step list on the left of every step screen (fits a 1366x768 laptop)
 
 
 class App:
@@ -550,12 +556,17 @@ class App:
         self.index = 0
         self.ticks = {}            # step id -> [BooleanVar per prompt], kept when going back
         self.device_results = None
+        self.scroll_canvas = None  # the step screen's scrolling area (None on other screens)
         root.title("Session Runner" + (" (DEMO)" if args.demo else ""))
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         w, h = min(1100, int(sw * 0.9)), int(sh * 0.85)
-        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 4}")
+        top = (sh - h) // 4
+        if sh < 900:   # a 768-pixel laptop screen: every pixel of height, above the taskbar
+            h, top = sh - 100, 0
+        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{top}")
         self.wrap = w - 60
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+        root.bind_all("<MouseWheel>", self.on_wheel)
         ttk.Style().configure("TButton", font=FONT, padding=8)
         self.header = tk.Label(root, font=BIG, anchor="w", justify="left", padx=12, pady=6, bg="#e8eef7")
         self.header.pack(fill="x")
@@ -580,9 +591,9 @@ class App:
             text += "\n" + self.session.log_error
         self.header.config(text=text, fg=RED if self.session.log_error else "black")
 
-    def label(self, parent, text, font=FONT, fg="black", **kw):
-        lab = self.tk.Label(parent, text=text, font=font, fg=fg, anchor="w", justify="left", wraplength=self.wrap,
-                            **kw)
+    def label(self, parent, text, font=FONT, fg="black", wrap=None, **kw):
+        lab = self.tk.Label(parent, text=text, font=font, fg=fg, anchor="w", justify="left",
+                            wraplength=wrap or self.wrap, **kw)
         lab.pack(fill="x", anchor="w", pady=2)
         return lab
 
@@ -738,29 +749,40 @@ class App:
         # buttons first, at the bottom, so a small screen never hides them
         buttons = ttk.Frame(self.body, padding=(0, 8))
         buttons.pack(side="bottom", fill="x")
-        self.label(self.body, f"Step {index + 1} of {len(self.protocol['steps'])}", fg=GREY)
-        self.label(self.body, step["title"], BIG)
-        self.label(self.body, step["instructions"])
+        self.step_buttons = []
+        wrap = self.wrap
+        if len(self.protocol["steps"]) > 1:
+            self.show_step_list()
+            wrap = self.wrap - STEP_LIST_WIDTH - 20
+        main = self.scroll_area(self.body)
+        title_row = ttk.Frame(main)   # "Step 2 of 4" beside the title: one line less on a 768-pixel screen
+        title_row.pack(fill="x", pady=(0, 2))
+        tk.Label(title_row, text=f"Step {index + 1} of {len(self.protocol['steps'])}", font=FONT, fg=GREY).pack(
+            side="right", anchor="n", padx=(12, 0))
+        tk.Label(title_row, text=step["title"], font=BIG, anchor="w", justify="left", wraplength=wrap - 120).pack(
+            side="left", fill="x")
+        self.label(main, step["instructions"], wrap=wrap)
         ticks = self.ticks.setdefault(step["id"], [tk.BooleanVar() for _ in step["prompts"]])
         if step["prompts"]:
-            self.label(self.body, "Tick each one before you press Start:", BOLD).pack_configure(pady=(10, 2))
+            self.label(main, "Tick each one before you press Start:", BOLD).pack_configure(pady=(8, 2))
             for text, var in zip(step["prompts"], ticks):
-                tk.Checkbutton(self.body, text=text, variable=var, font=FONT, anchor="w",
-                               command=self.update_step_buttons).pack(fill="x", anchor="w")
+                tk.Checkbutton(main, text=text, variable=var, font=FONT, anchor="w", justify="left", bd=0, pady=1,
+                               wraplength=wrap - 30, command=self.update_step_buttons).pack(fill="x", anchor="w")
         if step["type_into_task"]:
-            box = tk.Frame(self.body, bg=TYPE_BG, padx=12, pady=8, highlightthickness=1, highlightbackground=AMBER)
-            box.pack(fill="x", pady=(12, 4))
+            box = tk.Frame(main, bg=TYPE_BG, padx=12, pady=6, highlightthickness=1, highlightbackground=AMBER)
+            box.pack(fill="x", pady=(10, 4))
             tk.Label(box, text="Type exactly this into the task when it asks:", font=BOLD, bg=TYPE_BG).grid(
                 row=0, column=0, columnspan=2, sticky="w")
             for r, (what, value) in enumerate(step["type_into_task"], 1):
-                tk.Label(box, text=what, font=FONT, bg=TYPE_BG).grid(row=r, column=0, sticky="w", padx=(0, 16))
-                tk.Label(box, text=fill(value, self.session.who), font=HUGE, bg=TYPE_BG).grid(row=r, column=1,
-                                                                                               sticky="w")
+                tk.Label(box, text=what, font=FONT, bg=TYPE_BG, bd=0, pady=0).grid(row=r, column=0, sticky="w",
+                                                                                   padx=(0, 16))
+                tk.Label(box, text=fill(value, self.session.who), font=HUGE, bg=TYPE_BG, bd=0, pady=0).grid(
+                    row=r, column=1, sticky="w")
         problem = launch_problem(step["launch"])
         if problem:
-            self.label(self.body, problem, BOLD, fg=RED)
-        self.step_status = self.label(self.body, "", BOLD)
-        self.step_status.pack_configure(pady=(8, 0))
+            self.label(main, problem, BOLD, fg=RED, wrap=wrap)
+        self.step_status = self.label(main, "", BOLD, wrap=wrap)
+        self.step_status.pack_configure(pady=(6, 0))
         self.btn_back = ttk.Button(buttons, text="<  Back", command=self.step_back)
         self.btn_back.pack(side="left", padx=(0, 16))
         self.btn_start = ttk.Button(buttons, text="Start", command=self.step_start)
@@ -801,7 +823,72 @@ class App:
         else:
             text, fg = f"Skipped: {state['notes'][-1][len('skipped: '):]}. Press Next step.", GREY
         self.step_status.config(text=text, fg=fg)
+        self.refresh_step_list()
         self.update_header()
+
+    def scroll_area(self, parent):
+        """A frame that gets a scroll bar only when its content is taller than the window (a step with many
+        lines on a 768-pixel screen), so nothing is ever cut off unseen."""
+        tk, ttk = self.tk, self.ttk
+        outer = ttk.Frame(parent)
+        outer.pack(side="left", fill="both", expand=True)
+        canvas = tk.Canvas(outer, highlightthickness=0, bd=0, yscrollincrement=20)
+        bar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(canvas)
+        item = canvas.create_window(0, 0, window=inner, anchor="nw")
+
+        def layout(_event=None):
+            canvas.itemconfigure(item, width=canvas.winfo_width())
+            canvas.configure(scrollregion=(0, 0, canvas.winfo_width(), inner.winfo_reqheight()))
+            if inner.winfo_reqheight() > canvas.winfo_height() + 2:
+                if not bar.winfo_ismapped():
+                    bar.pack(side="right", fill="y", before=canvas)
+            elif bar.winfo_ismapped():
+                bar.pack_forget()
+                canvas.yview_moveto(0)
+
+        inner.bind("<Configure>", layout)
+        canvas.bind("<Configure>", layout)
+        self.scroll_canvas, self.scroll_bar = canvas, bar
+        return inner
+
+    def on_wheel(self, event):
+        canvas = self.scroll_canvas
+        if canvas is not None and canvas.winfo_exists() and self.scroll_bar.winfo_ismapped():
+            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def show_step_list(self):
+        """Every step with its status, on the left; clicking one opens it (any order). The current one is
+        highlighted. The protocol's order is the default; this is for doing the steps in another order."""
+        tk = self.tk
+        panel = tk.Frame(self.body, width=STEP_LIST_WIDTH)
+        panel.pack(side="left", fill="y", padx=(0, 20))
+        panel.pack_propagate(False)
+        tk.Label(panel, text="All steps (click one to open it)", font=SMALL, fg=GREY, anchor="w").pack(fill="x")
+        self.step_buttons = []
+        for i in range(len(self.protocol["steps"])):
+            b = tk.Button(panel, anchor="w", justify="left", wraplength=STEP_LIST_WIDTH - 20, padx=8, pady=3,
+                          cursor="hand2", command=lambda i=i: self.step_goto(i))
+            b.pack(fill="x", pady=2)
+            self.step_buttons.append(b)
+        self.refresh_step_list()
+
+    def refresh_step_list(self):
+        for i, (b, step) in enumerate(zip(self.step_buttons, self.protocol["steps"])):
+            status = self.session.step(step["id"])["status"]
+            current = i == self.index
+            b.config(text=f"{i + 1}. {step['title']}\n     {status}", fg=STATUS_FG[status],
+                     font=SMALL_BOLD if current else SMALL, relief="sunken" if current else "raised",
+                     bg=CURRENT_BG if current else "#f4f4f4", activeforeground=STATUS_FG[status])
+
+    def step_goto(self, index):
+        if index == self.index:
+            return
+        steps = self.protocol["steps"]
+        self.session.goto(steps[self.index]["id"], steps[index]["id"])
+        self.show_step(index)
 
     def step_start(self):
         from tkinter import messagebox
@@ -856,7 +943,7 @@ class App:
     # -- screen 4: end
     def show_end(self):
         ttk = self.ttk
-        self.session.finish("completed: all steps shown")
+        self.session.finish(self.session.completion())
         self.clear()
         self.label(self.body, "Session finished", BIG)
         d = self.session.devices or {}
@@ -873,6 +960,10 @@ class App:
         for row in self.session.summary():
             table.insert("", "end", values=row)
         table.pack(fill="x", pady=10)
+        titles = {s["id"]: s["title"] for s in self.protocol["steps"]}
+        order = self.session.run_order()
+        if order:
+            self.label(self.body, "Order the steps were started in: " + ",  ".join(titles[i] for i in order))
         problems = [r for r in self.session.summary() if r[1] in (PROBLEM, SKIPPED, NOT_STARTED, STARTED)]
         if problems:
             self.label(self.body, "Some steps were not done: tell the researcher (the log has the details).", BOLD,
