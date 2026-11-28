@@ -75,6 +75,10 @@ One file per protocol in `protocols\`, named by content: `full-battery.json` (re
 `physio-hrd-rrst.json` (rest, HRD, RRST), `rrst-only.json`. The step orders are provisional. Keys
 starting with `_` are notes and are ignored; any other unknown key is an error (catches typos).
 
+The order of the objects in `steps` is the default order, and the protocol file is the only place it is
+set: to change the order, reorder the steps in the protocol JSON. (On the day, the RA can still open any
+step from the step list.)
+
 ```json
 {
   "name": "Physio, HRD, RRST",
@@ -99,8 +103,9 @@ starting with `_` are notes and are ignored; any other unknown key is an error (
 - `devices`: any of `physio_recorder` (a window titled *Physio Recorder*), `rrst_teensy` (USB
   16C0:0483), `sensorbridge` (USB 0403:7168). Read-only checks.
 - `launch`: `null` (nothing to open); `{"open": "<file name>"}`, a shortcut on the current user's
-  Desktop (`%USERPROFILE%\Desktop\<file name>`), opened as a double-click would; `{"open": "<path>"}`
-  with a folder (a `.lnk`, `.bat` or `.exe` anywhere); or `{"command": ["<program>", "arg", ...],
+  Desktop (`%USERPROFILE%\Desktop\<file name>`: a `.lnk` shortcut or a `.url` internet shortcut),
+  opened as a double-click would; `{"open": "<path>"}` with a folder (a `.lnk`, `.url`, `.bat` or
+  `.exe` anywhere); or `{"command": ["<program>", "arg", ...],
   "cwd": "<folder>"}`. `%VARS%` are expanded. The shipped protocols use the laptops' shortcuts
   `HRD (Heart Rate Discrimination).lnk`, `RRST (MATLAB).lnk` and `Effort task (dynamometer).lnk`. A
   missing target (or a value containing `FILL IN`) shows a red line on the step, and the RA opens the
@@ -117,6 +122,31 @@ starting with `_` are notes and are ignored; any other unknown key is an error (
 - `windows\session_runner.bat full-battery` opens with that protocol picked; with no argument the RA
   picks it from the list. `windows\session_runner.bat --demo` opens the demo (every Start opens
   Notepad, log names end in `_demo`).
+
+**Adding a web task (internet shortcut on the Desktop).** A task that runs in the browser is opened from
+a `.url` file on the Desktop, exactly like the `.lnk` shortcuts:
+1. On every laptop, signed in as the RA's account, put the internet shortcut on the Desktop (in the
+   browser, drag the padlock left of the address onto the Desktop; or right-click the Desktop > New >
+   Shortcut, paste the address, and give it a name). Windows hides the `.url` ending, but the protocol
+   file needs the full name, e.g. `Web task (browser).url`.
+2. Add a step to the protocol file at the place in the order where it belongs:
+   ```json
+   {
+     "id": "webtask",
+     "title": "Web task (browser)",
+     "instructions": "Press Start here: the task opens in the browser. Type the values below when it asks. Press Done when the task says it has finished.",
+     "prompts": ["Participant seated in front of the laptop"],
+     "launch": {"open": "Web task (browser).url"},
+     "type_into_task": [["Web task > Participant", "{participant}"],
+                        ["Web task > Session", "{session}"]]
+   }
+   ```
+3. Run `.venv\Scripts\python.exe session_runner.py --check <protocol>`: the new step must say `ok`. A
+   shortcut that is not on the Desktop yet says `TODO`, so add the step only once the shortcut exists on
+   every laptop.
+
+The Session Runner does not see what happens in the browser: the RA presses **Done** when the task has
+finished.
 
 ---
 
