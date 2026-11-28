@@ -203,13 +203,14 @@ def fill(template, who):
 
 def validate_start(initials, participant, session, digits_only=False):
     """(values, problems): the start screen's three fields, cleaned, and what is wrong with them.
-    digits_only: the protocol's participant_digits_only (RRST reads the subject ID as a number)."""
+    digits_only: the protocol's participant_digits_only. Then the participant must be exactly 4 digits
+    (0001-9999): RRST names its files RRST_%04d, so "1" and "0001" would not match the other tasks' files."""
     initials, participant, session = (str(x or "").strip() for x in (initials, participant, session))
     problems = []
     if not re.fullmatch(r"[A-Za-z]{2,4}", initials):
         problems.append("RA initials: 2 to 4 letters, e.g. JD")
-    if digits_only and not re.fullmatch(r"[0-9]{1,20}", participant):
-        problems.append("Participant ID: digits only, e.g. 0001 (RRST in this session accepts only a number)")
+    if digits_only and not (re.fullmatch(r"[0-9]{4}", participant) and participant != "0000"):
+        problems.append("Participant: exactly 4 digits, e.g. 0007")
     elif not re.fullmatch(r"[A-Za-z0-9]{1,20}", participant):
         problems.append("Participant ID: letters and digits only (no spaces, dashes or underscores), e.g. 0123")
     if not re.fullmatch(r"[1-9][0-9]?", session):
@@ -592,8 +593,8 @@ class App:
             w.grid(row=r, column=1, sticky="w", pady=6)
             if r == 1:
                 w.focus_set()
-        self.label(self.body, "Participant ID: letters and digits only; digits only when the session includes RRST. "
-                              "Session: a number (1, 2, ...).", fg=GREY)
+        self.label(self.body, "Participant ID: exactly 4 digits (e.g. 0007) when the session includes RRST; "
+                              "otherwise letters and digits. Session: a number (1, 2, ...).", fg=GREY)
         self.start_msg = self.label(self.body, "", fg=RED)
         ttk.Button(self.body, text="Next  >", command=self.start_next).pack(anchor="w", pady=10)
         self.root.bind("<Return>", lambda e: self.start_next())

@@ -21,8 +21,9 @@ Open **Session Runner** (desktop shortcut, or `windows\session_runner.bat`).
 1. **Protocol**: the list of tasks for today (*Full battery*, *Physio, HRD, RRST* or *RRST only*;
    usually already picked).
 2. **RA initials** (2 to 4 letters), **Participant ID** and **Session number** (1, 2, ...; type `1`,
-   not `01`). The participant ID is **digits only** (e.g. `0001`) whenever the protocol includes RRST,
-   because RRST accepts only a number; otherwise letters and digits, no dashes or spaces.
+   not `01`). The participant ID is **exactly 4 digits** (`0001` to `9999`, e.g. `0007`, never `7`)
+   whenever the protocol includes RRST: RRST names its files with 4 digits, so every task must get the
+   same 4-digit ID. Otherwise letters and digits, no dashes or spaces.
 3. Click **Next**, check the summary, click **Yes**. A red line under the fields says what to fix.
 
 From now on the participant, session and your initials are shown at the top of every screen.
@@ -99,8 +100,9 @@ starting with `_` are notes and are ignored; any other unknown key is an error (
   `HRD (Heart Rate Discrimination).lnk`, `RRST (MATLAB).lnk` and `Effort task (dynamometer).lnk`. A
   missing target (or a value containing `FILL IN`) shows a red line on the step, and the RA opens the
   task by hand.
-- `participant_digits_only`: `true` in every protocol with RRST (RRST reads the subject ID as a
-  number); the start screen then accepts digits only.
+- `participant_digits_only`: `true` in every protocol with RRST; the start screen then accepts only a
+  participant ID of exactly 4 digits (`0001` to `9999`). RRST reads the subject ID as a number and
+  names its files `RRST_%04d`, so `1` and `0001` would not match the Physio Recorder's and HRD's files.
 - `type_into_task`: `[what the task asks, value]` pairs; `{participant}`, `{session}`, `{initials}` are
   replaced by what the RA entered.
 - `log_dir`: relative to the plux-lsl folder (default `logs/session_runner`); never inside a `data` folder.

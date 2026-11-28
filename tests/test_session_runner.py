@@ -149,12 +149,14 @@ def test_bad_start_input_names_the_field(initials, participant, session, field):
     assert len(problems) == 1 and problems[0].startswith(field)
 
 
-def test_digits_only_participant_for_rrst_protocols():
-    assert sr.validate_start("JD", "0001", "1", digits_only=True)[1] == []
-    for bad in ("pilotA", "A001", "00 1", ""):
+def test_four_digit_participant_for_rrst_protocols():
+    for good in ("0001", "0007", "0123", "9999"):
+        assert sr.validate_start("JD", good, "1", digits_only=True)[1] == []
+    for bad in ("pilotA", "A001", "00 1", "", "1", "7", "007", "00007", "12345", "0000"):
         _, problems = sr.validate_start("JD", bad, "1", digits_only=True)
-        assert problems == ["Participant ID: digits only, e.g. 0001 (RRST in this session accepts only a number)"]
+        assert problems == ["Participant: exactly 4 digits, e.g. 0007"], bad
     assert sr.validate_start("JD", "pilotA", "1", digits_only=False)[1] == []
+    assert sr.validate_start("JD", "7", "1", digits_only=False)[1] == []   # no RRST: any letters and digits
 
 
 def test_fill_only_known_tokens():
